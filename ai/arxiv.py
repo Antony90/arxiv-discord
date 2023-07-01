@@ -19,7 +19,8 @@ class ArxivFetch:
             "source": doc.metadata["entry_id"].split("/")[-1],
             "title": doc.metadata["Title"]
         }
+        print(f"Downloaded {doc.metadata['source']}")
         return doc
     
     def get_doc_async(self, paper_id: str):
-        return asyncio.to_thread(self.get_doc, args=(paper_id,))
+        return asyncio.to_thread(self.get_doc_sync, paper_id)

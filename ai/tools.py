@@ -1,14 +1,18 @@
 import asyncio
-from langchain.tools import BaseTool
+
+from langchain.tools import BaseTool, ArxivQueryRun
 from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.chains.query_constructor.base import AttributeInfo
 from langchain.callbacks.manager import CallbackManagerForToolRun
+from langchain.callbacks.base import BaseCallbackHandler
 from langchain.base_language import BaseLanguageModel
 from langchain.vectorstores.base import VectorStore
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.docstore.document import Document
 
-from typing import List, Optional, Type
+
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from pydantic import BaseModel, Field
 
@@ -25,12 +29,14 @@ class ArxivSearch(BaseTool):
 
 
 class PaperQASchema(BaseModel):
-    query: str = Field(description="A question about the loaded papers")
+    query: str = Field(description="A question or a keyword describing what you need and the ID of the paper to query. Cannot be empty.")
 
 class PaperQATool(BaseTool):
-    name = "arXiv paper question-answering",
-    description = "Ask questions about the contents of the currently loaded papers"
+    name = "arXiv-Paper-Query"
+    description = "Primary source of factual information. Query the contents of the currently loaded papers."
     args_schema: Type[PaperQASchema] = PaperQASchema
+
+    qa_func: Any
     
     def __init__(self, llm: BaseLanguageModel, vectorstore: VectorStore, *args, **kwargs):
         """
@@ -42,6 +48,9 @@ class PaperQATool(BaseTool):
         self.qa_func = self._make_qa_func(llm, vectorstore)
 
     def _run(self, query: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.qa_func(query)
+    
+    async def _arun(self, query: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         return self.qa_func(query)
 
     def _make_qa_func(self, llm, vectorstore):
@@ -78,22 +87,22 @@ class PaperQATool(BaseTool):
     
 
 class AddPapersSchema(BaseModel):
-    query: str = Field(description="List of arXiv paper ids")
+    query: List[str] = Field(description="List of arXiv paper ids")
     
     
 class AddPapersTool(BaseTool):
-    name = "Add arXiv papers"
-    description = "Downloads arXiv papers into memory"
+    name = "Add-arXiv-papers"
+    description = "Downloads arXiv papers into memory. Must be done before a paper can be queried"
     args_schema: Type[AddPapersSchema] = AddPapersSchema
 
-    vectorstore: VectorStore # Document embedding store
-    
     # private attrs
+    vectorstore: VectorStore # Document embedding store
     search = ArxivFetch()
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=0
     )
+    pdf_download_callback: Callable[[List[Dict[str, str]]], None]
     
 
     def _run(self, query: List[str]):
@@ -102,8 +111,21 @@ class AddPapersTool(BaseTool):
     
 
     async def _arun(self, query: List[str]):
-        docs = await asyncio.gather(*[self.search.get_doc_async(paper_id) for paper_id in query])
+        docs: List[Document] = await asyncio.gather(*[self.search.get_doc_async(paper_id) for paper_id in query])
+        self.pdf_download_callback([doc.metadata for doc in docs])
+
+        print(f"Got {sum([len(doc.page_content) for doc in docs])} chars from {len(query)} PDFs")
         split_docs = self.text_splitter.split_documents(docs)
-        await self.vectorstore.aadd_documents(split_docs)
+        print(f"Split into {len(split_docs)} docs")
+        
+        self.vectorstore.add_documents(split_docs)
         return f"Added {len(query)} papers to memory"
         
+class AddPapersCallback:
+    def on_tool_end(self, output: str, **kwargs: Any) -> Any:
+        """Run when tool ends running, to store paper title and id."""
+        output
+
+class SummarizePaperTool(BaseTool):
+    name = "Summarize-arXiv-Paper"
+    # description
