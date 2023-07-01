@@ -1,20 +1,23 @@
 import asyncio
+from langchain import PromptTemplate
 
-from langchain.tools import BaseTool, ArxivQueryRun
+from langchain.tools import BaseTool
 from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.retrievers.self_query.base import SelfQueryRetriever
+from langchain.chains.summarize import load_summarize_chain
+from langchain.chains.combine_documents.base import BaseCombineDocumentsChain
 from langchain.chains.query_constructor.base import AttributeInfo
 from langchain.callbacks.manager import CallbackManagerForToolRun
-from langchain.callbacks.base import BaseCallbackHandler
 from langchain.base_language import BaseLanguageModel
 from langchain.vectorstores.base import VectorStore
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 
 
+
 from typing import Any, Callable, Dict, List, Optional, Type
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from ai.arxiv import ArxivFetch
 
@@ -33,7 +36,7 @@ class PaperQASchema(BaseModel):
 
 class PaperQATool(BaseTool):
     name = "arXiv-Paper-Query"
-    description = "Primary source of factual information. Query the contents of the currently loaded papers."
+    description = "Source of factual information specifically for loaded papers. Query the contents of the currently loaded papers."
     args_schema: Type[PaperQASchema] = PaperQASchema
 
     qa_func: Any
@@ -121,11 +124,39 @@ class AddPapersTool(BaseTool):
         self.vectorstore.add_documents(split_docs)
         return f"Added {len(query)} papers to memory"
         
-class AddPapersCallback:
-    def on_tool_end(self, output: str, **kwargs: Any) -> Any:
-        """Run when tool ends running, to store paper title and id."""
-        output
+
+class SummarizePaperSchema(BaseModel):
+    query: str = Field(description="arXiv paper id")
 
 class SummarizePaperTool(BaseTool):
     name = "Summarize-arXiv-Paper"
-    # description
+    description = "Summarizes a loaded paper, given its paper id."
+
+    args_schema: Type[SummarizePaperSchema] = SummarizePaperSchema
+    chain: BaseCombineDocumentsChain = Field(exclude=True, default=None)
+    vectorstore: VectorStore = Field(exclude=True, default=None)
+
+
+    def __init__(self, llm: BaseLanguageModel, vectorstore: VectorStore, **data) -> None:
+        super().__init__(**data)
+        prompt = PromptTemplate(
+            input_variables=["text"],
+            template=\
+"""Write a concise summary of the following paper, focussing on objective fact:
+
+
+"{text}"
+
+
+CONCISE SUMMARY:""")
+
+        self.chain = load_summarize_chain(llm, chain_type="stuff", prompt=prompt)
+        self.vectorstore = vectorstore
+
+    def _run(self, query):
+        return "This is a placeholder summary."
+        # sreturn elf.chain.run(query)
+
+    async def _arun(self, query):
+        return "This is a placeholder summary."
+        # return await self.chain.arun(query)

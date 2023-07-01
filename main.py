@@ -1,6 +1,6 @@
+__import__("dotenv").load_dotenv()
 import asyncio
 from ai.agent import ArxivAgent
-__import__("dotenv").load_dotenv()
 
 async def main():
     agent = ArxivAgent(chat_id="test", message_history=[], verbose=True)
