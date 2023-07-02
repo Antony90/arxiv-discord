@@ -6,6 +6,7 @@ import discord
 from discord.ext.commands import bot
 
 from langchain.memory.chat_message_histories import ChatMessageHistory
+from ai.agent import ArxivAgent
 
 from bot import ArxivBot
 from config import CONFIG
@@ -17,7 +18,9 @@ handler = logging.FileHandler(filename='logs/bot.log', encoding='utf-8', mode='w
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = ArxivBot()
+agent = ArxivAgent(verbose=True)
+
+bot = ArxivBot(agent)
 bot.run(
     token=CONFIG.BOT_TOKEN, 
     log_handler=handler, 
