@@ -1,9 +1,10 @@
 import asyncio
-from langchain import PromptTemplate
+from pydantic import BaseModel, Extra, Field, PrivateAttr
 
+from langchain import PromptTemplate
 from langchain.tools import BaseTool
 from langchain.tools.base import ToolException
-from langchain.chains import RetrievalQAWithSourcesChain
+from langchain.chains import RetrievalQAWithSourcesChain, RetrievalQA
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.chains.summarize import load_summarize_chain
 from langchain.chains.combine_documents.base import BaseCombineDocumentsChain
@@ -16,12 +17,12 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 
 
-
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
 
-from pydantic import BaseModel, Field, PrivateAttr
+from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
 
-from ai.arxiv import ArxivFetch
+
+
 
 arxiv_fetch = ArxivFetch()
 
@@ -31,7 +32,7 @@ class ArxivSearchSchema(BaseModel):
 
 class ArxivSearchTool(BaseTool):
     name = "arXiv-Search"
-    description = "Search arXiv and get a list of relevant papers (title and ID)."
+    description = "Search arXiv and get a list of relevant papers (title and ID). Only use if user specifically wants you to search arXiv."
     args_schema: Type[ArxivSearchSchema] = ArxivSearchSchema
 
     def _run(self, query: str) -> List[str]:
@@ -44,71 +45,66 @@ class ArxivSearchTool(BaseTool):
             raise ToolException("No results found")
 
 class PaperQASchema(BaseModel):
-    query: str = Field(description="A question or a keyword to query loaded papers. Cannot be empty.")
+    query: str = Field(description="A question to ask about a currently loaded paper. Cannot be empty.")
+    paper_id: str = Field(description="ID of paper to query")
+    chat_id: str = Field(description="Chat ID of current conversation")
 
 class PaperQATool(BaseTool):
     name = "arXiv-Paper-Query"
-    description = "Source of factual information only for loaded papers. Query the contents of the currently loaded papers."
+    description = "Source of factual information for a loaded paper. The paper must be loaded. When using the output of this tool, retain as much information as possible, do not shorten."
     args_schema: Type[PaperQASchema] = PaperQASchema
 
-    qa_func: Any
+    # private attrs
+    llm: BaseLanguageModel # for QA retrieval chain prompting
+    vectorstore: Chroma # embeddings of currently loaded PDFs, must support self query retrieval
+    _user_paper_store: LoadedPapersStore
+
+    class Config:
+        extra = Extra.allow
     
-    def __init__(self, llm: BaseLanguageModel, vectorstore: VectorStore, *args, **kwargs):
-        """
-        `llm`: for self query prompting
+    def _validate(self, paper_id: str, chat_id: str) -> None:
+        # check that the paper is already loaded for this chat
+        # prevents vague queries which cause SelfQueryRetriever to not filter by paper ids
+        is_loaded = paper_id in map(lambda meta: meta.source, self._user_paper_store.get(chat_id))
+        if not is_loaded:
+            raise ToolException(f"Paper {paper_id} is not loaded for this chat, would you like to load it?")
+        if not len(paper_id) > 0: # TODO: check if valid arXiv ID
+            raise ToolException(f"\"{paper_id}\" is not a valid arXiv ID.")
 
-        `vectorstore`: embeddings of currently loaded PDFs, must support self query retrieval
-        """
-        super().__init__(*args, **kwargs)
-        self.qa_func = self._make_qa_func(llm, vectorstore)
 
-    def _run(self, query: str) -> str:
-        return self.qa_func(query)
-    
-    async def _arun(self, query: str) -> str:
-        return self.qa_func(query)
+    def _run(self, query: str, paper_id: str, chat_id: str) -> str:
+        self._validate(paper_id, chat_id)
+        qa = self._make_qa_chain(paper_id)
+        return qa.run(query)
 
-    def _make_qa_func(self, llm, vectorstore):
-        metadata_info = [
-            AttributeInfo(
-                name="source",
-                description="arXiv paper ID",
-                type="string"
-            ),
-            AttributeInfo(
-                name="title",
-                description="paper title",
-                type="string"
-            )
-        ]
-        retriever = SelfQueryRetriever.from_llm(
-            llm=llm,
-            vectorstore=vectorstore,
-            metadata_field_info=metadata_info,
-            document_contents="arXiv PDF texts",
-            verbose=True
-        )
-        qa: RetrievalQAWithSourcesChain = RetrievalQAWithSourcesChain.from_chain_type(
-            llm=llm,
+
+    async def _arun(self, query: str, paper_id: str, chat_id: str) -> str:
+        self._validate(paper_id, chat_id)
+        qa = self._make_qa_chain(paper_id)
+        return await qa.arun(query)
+
+
+    def _make_qa_chain(self, paper_id: str):
+        """Make a RetrievalQA chain which filters by this paper_id"""
+        filter = {
+            "source": paper_id
+        }
+        retriever = self.vectorstore.as_retriever(search_kwargs={"filter": filter})
+        qa = RetrievalQA.from_chain_type(
+            llm=self.llm,
             chain_type="stuff",
             retriever=retriever
         )
-        def func(query: str):
-            if query.strip() == '':
-                raise Exception("Query cannot be empty")
-            result = qa({"question": query})
-            return result
-        
-        return func
+        return qa
     
 
 class AddPapersSchema(BaseModel):
     query: List[str] = Field(description="List of arXiv paper ids")
-    
+    chat_id: str = Field(description="Chat ID to add the papers to")
     
 class AddPapersTool(BaseTool):
     name = "Add-arXiv-papers"
-    description = "Downloads arXiv papers into memory. Must be done before a paper can be queried"
+    description = "Loads arXiv papers into your memory. Must be done before a paper can be queried."
     args_schema: Type[AddPapersSchema] = AddPapersSchema
 
     # private attrs
@@ -117,7 +113,7 @@ class AddPapersTool(BaseTool):
         chunk_size=1000,
         chunk_overlap=0
     )
-    pdf_download_callback: Callable[[List[Dict[str, str]]], None]
+    paper_load_callback: Callable[[List[PaperMetadata], str], None]
     
 
     def _run(self, query: List[str]):
@@ -125,24 +121,40 @@ class AddPapersTool(BaseTool):
         raise NotImplementedError("Use async version `_arun`")
     
 
-    async def _arun(self, query: List[str]):
-        to_download = []
+    async def _arun(self, query: List[str], chat_id: str):
+        # arXiv paper ids to download PDF Documents for
+        to_download: List[str] = []
+        # papers already in vectorstore
+        existing_metas: List[PaperMetadata] = []
+
         for paper_id in query:
-            # check for existing Docs
+            # check for existing Docs of this paper
             result = self.vectorstore._collection.get(where={"source":paper_id})
             if len(result["documents"]) == 0: # any key can be checked
                 # not in db
                 to_download.append(paper_id)
+            else:
+                # take the first result's metadata
+                existing_metas.append(PaperMetadata(**result["metadatas"][0]))
+        print(f"{to_download=}")
+        # notify callback with existing papers
+        self.paper_load_callback(existing_metas, chat_id)
             
         docs = await asyncio.gather(*[arxiv_fetch.get_doc_async(paper_id) for paper_id in to_download])
-        self.pdf_download_callback([doc.metadata for doc in docs])
-        print(f"Downloaded {len(to_download)} PDFs")
-
-        split_docs = self.text_splitter.split_documents(docs)
+        # also notify on newly fetched papers
+        downloaded_metas = [PaperMetadata(**doc.metadata) for doc in docs]
         
-        self.vectorstore.add_documents(split_docs)
-        doc_str = "\n".join([f"{doc.metadata['title']} | {doc.metadata['source']}" for doc in docs])
-        return f"Success, papers loaded:\n{doc_str}"
+        if len(docs) > 0:
+            # text spltter will error on empty list
+            self.paper_load_callback(downloaded_metas, chat_id)
+            # split and embed docs in vectorstore
+            split_docs = self.text_splitter.split_documents(docs)
+            self.vectorstore.add_documents(split_docs)
+        
+        paper_metas = existing_metas + downloaded_metas
+        output_str = "\n".join([meta.short_repr() for meta in paper_metas])
+
+        return f"Papers loaded:\n{output_str}"
         
 
 class SummarizePaperSchema(BaseModel):

@@ -1,4 +1,5 @@
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 from langchain.docstore.document import Document
 import asyncio
 
@@ -29,7 +30,7 @@ class ArxivFetch:
             "source": self._short_id(doc.metadata["entry_id"]),
             "title": doc.metadata["Title"]
         }
-        print(f"Downloaded {doc.metadata['source']}")
+        print(f"Downloaded {doc.metadata}")
         return doc
     
     async def get_doc_async(self, paper_id: str):
@@ -62,3 +63,25 @@ class ArxivFetch:
         for r in results:
             output.append(f"{r.title} - {self._short_id(r.entry_id)}")
         return output
+    
+
+@dataclass
+class PaperMetadata:
+    title: str
+    source: str
+
+    def short_repr(self):
+        return f"{self.title} - {self.source}"
+
+@dataclass
+class LoadedPapersStore:
+    _to_papers: Dict[str, list[PaperMetadata]] = field(default_factory=dict)
+
+    def get(self, chat_id: str):
+        if chat_id not in self._to_papers:
+            self._to_papers[chat_id] = []
+        return self._to_papers[chat_id]
+
+    def add_papers(self, chat_id: str, paper_metas: List[PaperMetadata]):
+        self._to_papers[chat_id].extend(paper_metas)
+    
