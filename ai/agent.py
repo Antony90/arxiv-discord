@@ -37,17 +37,17 @@ class ArxivAgent:
         
         self.agent = self._init_agent()
 
-    async def acall(self, input, chat_id: str, message_history: BaseChatMessageHistory):
+    async def acall(self, input, chat_id: str, chat_history: BaseChatMessageHistory):
         """Call the model with a new user message and its message history.
         Loaded papers will be automatically fetched.
 
         Args:
             input (str): next user message
             chat_id (str): client provided unique identifier of conversation
-            message_history (BaseChatMessageHistory): message history
+            chat_history (BaseChatMessageHistory): message history
         """
         memory = ConversationBufferMemory(
-            chat_memory=message_history,
+            chat_memory=chat_history,
             return_messages=True,
             input_key="input",
             memory_key="memory"

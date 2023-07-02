@@ -2,3 +2,6 @@
 
 __pycache__
 vectorstore
+
+# bot logging dir
+logs

@@ -1,2 +1,4 @@
+import os
+
 class CONFIG:
-    pass
+    BOT_TOKEN = os.environ["BOT_TOKEN"]
