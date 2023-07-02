@@ -8,8 +8,9 @@ from langchain.chat_models import ChatOpenAI
 from langchain.vectorstores import Chroma
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.schema import SystemMessage
+from ai.prompts import AGENT_PROMPT, PAPERS_PROMPT
 
-from ai.tools import AddPapersTool, PaperQATool, SummarizePaperTool
+from ai.tools import AddPapersTool, ArxivSearchTool, PaperQATool, SummarizePaperTool
 
 class ArxivAgent:
     embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
@@ -41,7 +42,7 @@ class ArxivAgent:
     def _init_agent(self, verbose):
         prompt_template = PromptTemplate(
             input_variables=["papers"],
-            template="Here are the currently loaded papers you can query, in <title> | <arxiv id> format:\n{papers}\nWhen asked about loaded papers/papers you can access, repeat this list."
+            template=PAPERS_PROMPT
         )
         papers_prompt = SystemMessagePromptTemplate(
             prompt=prompt_template
@@ -49,7 +50,7 @@ class ArxivAgent:
         message_history = MessagesPlaceholder(variable_name="memory")
         extra_prompt_messages = [papers_prompt, message_history]
         system_message = SystemMessage(
-            content="You are an expert research assistant with access to a PDF papers. Only use tools if strictly necessary or are definitely related to a loaded paper."
+            content=AGENT_PROMPT
         )
         prompt = OpenAIFunctionsAgent.create_prompt(
             extra_prompt_messages=extra_prompt_messages,
@@ -80,7 +81,7 @@ class ArxivAgent:
     def _get_loaded_papers_msg(self):
         """Format metadata list for system prompt"""
         if len(self.loaded_docs) > 0:
-            return "\n".join([f"{metadata['title']} | {metadata['source']}" for metadata in self.loaded_docs])
+            return "\n".join([f"{metadata['title']} - {metadata['source']}" for metadata in self.loaded_docs])
         else:
             return "NONE"
 
@@ -92,6 +93,7 @@ class ArxivAgent:
         return [
             PaperQATool(llm=self.llm, vectorstore=self.vectorstore),
             AddPapersTool(vectorstore=self.vectorstore, pdf_download_callback=self._on_pdf_download),
-            SummarizePaperTool(llm=self.llm, vectorstore=self.vectorstore)
+            ArxivSearchTool()
+            # SummarizePaperTool(llm=self.llm, vectorstore=self.vectorstore),
         ]
 

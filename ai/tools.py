@@ -2,6 +2,7 @@ import asyncio
 from langchain import PromptTemplate
 
 from langchain.tools import BaseTool
+from langchain.tools.base import ToolException
 from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.chains.summarize import load_summarize_chain
@@ -10,33 +11,44 @@ from langchain.chains.query_constructor.base import AttributeInfo
 from langchain.callbacks.manager import CallbackManagerForToolRun
 from langchain.base_language import BaseLanguageModel
 from langchain.vectorstores.base import VectorStore
+from langchain.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 
 
 
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
 
 from pydantic import BaseModel, Field, PrivateAttr
 
 from ai.arxiv import ArxivFetch
 
-class RelatedArxiv(BaseTool):
-    """Gets list of related arXiv paper IDs for a given paper"""
-    pass
+arxiv_fetch = ArxivFetch()
+
+class ArxivSearchSchema(BaseModel):
+    query: str = Field(description="arXiv search query. Example: \"Large language models medical diagnosis\"")
 
 
-class ArxivSearch(BaseTool):
-    """Search arXiv with a text query and get paper IDs"""
-    pass
+class ArxivSearchTool(BaseTool):
+    name = "arXiv-Search"
+    description = "Search arXiv and get a list of relevant papers (title and ID)."
+    args_schema: Type[ArxivSearchSchema] = ArxivSearchSchema
 
+    def _run(self, query: str) -> List[str]:
+        return arxiv_fetch.search_sync(query)
+    
+    async def _arun(self, query: str):
+        try:
+            return await arxiv_fetch.search_async(query)
+        except IndexError:
+            raise ToolException("No results found")
 
 class PaperQASchema(BaseModel):
-    query: str = Field(description="A question or a keyword describing what you need and the ID of the paper to query. Cannot be empty.")
+    query: str = Field(description="A question or a keyword to query loaded papers. Cannot be empty.")
 
 class PaperQATool(BaseTool):
     name = "arXiv-Paper-Query"
-    description = "Source of factual information specifically for loaded papers. Query the contents of the currently loaded papers."
+    description = "Source of factual information only for loaded papers. Query the contents of the currently loaded papers."
     args_schema: Type[PaperQASchema] = PaperQASchema
 
     qa_func: Any
@@ -50,10 +62,10 @@ class PaperQATool(BaseTool):
         super().__init__(*args, **kwargs)
         self.qa_func = self._make_qa_func(llm, vectorstore)
 
-    def _run(self, query: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, query: str) -> str:
         return self.qa_func(query)
     
-    async def _arun(self, query: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    async def _arun(self, query: str) -> str:
         return self.qa_func(query)
 
     def _make_qa_func(self, llm, vectorstore):
@@ -81,10 +93,11 @@ class PaperQATool(BaseTool):
             chain_type="stuff",
             retriever=retriever
         )
-        def func(query):
+        def func(query: str):
+            if query.strip() == '':
+                raise Exception("Query cannot be empty")
             result = qa({"question": query})
-            print(f"{result['sources']=}")
-            return result["answer"]
+            return result
         
         return func
     
@@ -99,10 +112,9 @@ class AddPapersTool(BaseTool):
     args_schema: Type[AddPapersSchema] = AddPapersSchema
 
     # private attrs
-    vectorstore: VectorStore # Document embedding store
-    search = ArxivFetch()
+    vectorstore: Chroma # Document embedding store
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
+        chunk_size=1000,
         chunk_overlap=0
     )
     pdf_download_callback: Callable[[List[Dict[str, str]]], None]
@@ -114,15 +126,23 @@ class AddPapersTool(BaseTool):
     
 
     async def _arun(self, query: List[str]):
-        docs: List[Document] = await asyncio.gather(*[self.search.get_doc_async(paper_id) for paper_id in query])
+        to_download = []
+        for paper_id in query:
+            # check for existing Docs
+            result = self.vectorstore._collection.get(where={"source":paper_id})
+            if len(result["documents"]) == 0: # any key can be checked
+                # not in db
+                to_download.append(paper_id)
+            
+        docs = await asyncio.gather(*[arxiv_fetch.get_doc_async(paper_id) for paper_id in to_download])
         self.pdf_download_callback([doc.metadata for doc in docs])
+        print(f"Downloaded {len(to_download)} PDFs")
 
-        print(f"Got {sum([len(doc.page_content) for doc in docs])} chars from {len(query)} PDFs")
         split_docs = self.text_splitter.split_documents(docs)
-        print(f"Split into {len(split_docs)} docs")
         
         self.vectorstore.add_documents(split_docs)
-        return f"Added {len(query)} papers to memory"
+        doc_str = "\n".join([f"{doc.metadata['title']} | {doc.metadata['source']}" for doc in docs])
+        return f"Success, papers loaded:\n{doc_str}"
         
 
 class SummarizePaperSchema(BaseModel):
@@ -134,10 +154,10 @@ class SummarizePaperTool(BaseTool):
 
     args_schema: Type[SummarizePaperSchema] = SummarizePaperSchema
     chain: BaseCombineDocumentsChain = Field(exclude=True, default=None)
-    vectorstore: VectorStore = Field(exclude=True, default=None)
+    vectorstore: Chroma = Field(exclude=True, default=None)
 
 
-    def __init__(self, llm: BaseLanguageModel, vectorstore: VectorStore, **data) -> None:
+    def __init__(self, llm: BaseLanguageModel, vectorstore: Chroma, **data) -> None:
         super().__init__(**data)
         prompt = PromptTemplate(
             input_variables=["text"],
@@ -154,8 +174,11 @@ CONCISE SUMMARY:""")
         self.vectorstore = vectorstore
 
     def _run(self, query):
-        return "This is a placeholder summary."
-        # sreturn elf.chain.run(query)
+        raise Exception("Bonk! Too many tokens here!")
+        
+        result = self.vectorstore._collection.get(where={"source": query})
+        docs = result["documents"]
+        return self.chain.run(docs)
 
     async def _arun(self, query):
         return "This is a placeholder summary."
