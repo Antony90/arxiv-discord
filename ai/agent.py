@@ -1,6 +1,7 @@
 from typing import List
 from pydantic import Extra
 
+from langchain.callbacks import StdOutCallbackHandler
 from langchain.prompts import MessagesPlaceholder, PromptTemplate, SystemMessagePromptTemplate
 from langchain.agents import AgentExecutor
 from langchain.agents.openai_functions_agent.base import OpenAIFunctionsAgent
@@ -57,7 +58,8 @@ class ArxivAgent:
             agent=self.agent,
             tools=self.agent.tools,
             memory=memory,
-            verbose=self.verbose
+            verbose=self.verbose,
+            callbacks=[StdOutCallbackHandler("red")]
         )
 
         # add loaded papers to context so it knows which can be queried
@@ -119,7 +121,6 @@ class ArxivAgent:
             )
         
         paper_qa = PaperQATool(
-                return_direct=True,
                 llm=self.llm, 
                 vectorstore=self.vectorstore,
                 _user_paper_store=self.user_paper_store,

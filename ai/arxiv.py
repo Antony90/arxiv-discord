@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from langchain.docstore.document import Document
@@ -75,11 +76,9 @@ class PaperMetadata:
 
 @dataclass
 class LoadedPapersStore:
-    _to_papers: Dict[str, list[PaperMetadata]] = field(default_factory=dict)
+    _to_papers: Dict[str, list[PaperMetadata]] = field(default_factory=lambda: defaultdict(list))
 
     def get(self, chat_id: str):
-        if chat_id not in self._to_papers:
-            self._to_papers[chat_id] = []
         return self._to_papers[chat_id]
 
     def add_papers(self, chat_id: str, paper_metas: List[PaperMetadata]):

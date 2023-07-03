@@ -20,6 +20,7 @@ from langchain.docstore.document import Document
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
 
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
+from ai.prompts import SEARCH_TOOL
 
 
 
@@ -27,12 +28,12 @@ from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
 arxiv_fetch = ArxivFetch()
 
 class ArxivSearchSchema(BaseModel):
-    query: str = Field(description="arXiv search query. Example: \"Large language models medical diagnosis\"")
+    query: str = Field(description="arXiv search query. Vague terms are acceptable and do not need clarification. Example: \"Large language models medical diagnosis\"")
 
 
 class ArxivSearchTool(BaseTool):
     name = "arXiv-Search"
-    description = "Search arXiv and get a list of relevant papers (title and ID). Only use if user specifically wants you to search arXiv."
+    description = SEARCH_TOOL
     args_schema: Type[ArxivSearchSchema] = ArxivSearchSchema
 
     def _run(self, query: str) -> List[str]:
@@ -65,11 +66,11 @@ class PaperQATool(BaseTool):
     def _validate(self, paper_id: str, chat_id: str) -> None:
         # check that the paper is already loaded for this chat
         # prevents vague queries which cause SelfQueryRetriever to not filter by paper ids
+        if not len(paper_id) > 0: # TODO: check if valid arXiv ID
+            raise ToolException(f"\"{paper_id}\" is not a valid arXiv ID.")
         is_loaded = paper_id in map(lambda meta: meta.source, self._user_paper_store.get(chat_id))
         if not is_loaded:
             raise ToolException(f"Paper {paper_id} is not loaded for this chat, would you like to load it?")
-        if not len(paper_id) > 0: # TODO: check if valid arXiv ID
-            raise ToolException(f"\"{paper_id}\" is not a valid arXiv ID.")
 
 
     def _run(self, query: str, paper_id: str, chat_id: str) -> str:
@@ -195,3 +196,12 @@ CONCISE SUMMARY:""")
     async def _arun(self, query):
         return "This is a placeholder summary."
         # return await self.chain.arun(query)
+
+class KeyPointsTool(BaseTool):
+    pass
+
+class FiveKeywordsTool(BaseTool):
+    pass
+
+class LaymansSummary(BaseTool):
+    pass

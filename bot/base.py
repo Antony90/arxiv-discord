@@ -29,34 +29,41 @@ def ArxivBot(agent: ArxivAgent):
     # @bot.tree.command(name="chat", description="arXiv chatbot")
     # @app_commands.describe(message="First message of the conversation")
 
-    @bot.command(name="chat", description="arXiv chatbot")
-    async def chat(ctx: Context, message: str):
-        chat_history = ChatMessageHistory()
-        chat_history.add_user_message(message)
+    @bot.tree.command(name="chat", description="Start a conversation with arXiv papers")
+    @app_commands.describe(papers="Optional list of papers to load by ID or URL.")
+    async def chat(interaction: discord.Interaction, papers: str = None):
+        await interaction.response.defer(thinking=True)
+        if papers is not None:
+            initial_msg = f"Load these papers: {papers}"
+        else:
+            initial_msg = "What can you do?"
 
-        async with ctx.channel.typing():
-            ai_response = await agent.acall(
-                input=message,
-                chat_id=ctx.message.id, # user msg that invoked the command
-                chat_history=chat_history
-            )
+        chat_history = ChatMessageHistory()
         
-        await ctx.message.reply(content=ai_response)
+        ai_response = await agent.acall(
+            input=initial_msg,
+            chat_id=interaction.id, # user msg that invoked the command
+            chat_history=chat_history
+        )
+    
+        await interaction.followup.send(content=ai_response)
             
         
     @bot.event
     async def on_message(message: Message):
-        if message.content.startswith(bot.command_prefix):
-            return await bot.process_commands(message)
+        # if message.content.startswith(bot.command_prefix):
+        #     return await bot.process_commands(message)
         
         # prevent bot from invoking command
         # only care about replies
         if message.author.id == bot.user.id or message.reference is None:
             return
         
-        
+        print(f"on_message: '{message.content}'")
         async with message.channel.typing():
             message_history = await get_reply_chain(message)
+            for msg in message_history:
+                print(f"{msg.author.name}: {msg.content}")
             
             # original bot response message id to uniquely id a conversation
             chat_id = message_history[0].id 
@@ -74,10 +81,14 @@ def ArxivBot(agent: ArxivAgent):
         history = ChatMessageHistory()
         for msg in message_history:
             if msg.author.id == bot.user.id:
-                add = history.add_ai_message
+                history.add_ai_message(msg.content)
             else:
-                add = history.add_user_message
-            add(msg.content)
+                # remove chat cmd from message
+                chat_cmd = f"{bot.command_prefix}{chat.name}"
+                if msg.content.startswith(chat_cmd):
+                    history.add_user_message(msg.content[len(chat_cmd):])
+                else:
+                    history.add_user_message(msg.content)
         return history
 
     async def get_reply_chain(curr_msg: Message):
@@ -91,12 +102,18 @@ def ArxivBot(agent: ArxivAgent):
                 # wasn't resolved by discord, so fetch it
                 curr_msg = await channel.fetch_message(curr_msg.reference.message_id)
             elif isinstance(next_msg, DeletedReferencedMessage):
-                # end chain on deleted msg 
+                # end chain on deleted msg, use curr_msg as new chat_id
+                chat_id = curr_msg.id
                 break
             else:
                 # already resolved
                 curr_msg = next_msg
+    
             messages.append(curr_msg)
+        else:
+            # exited loop without finding deleted msg, `curr_msg` must be bot's interaction response
+            chat_id = curr_msg.interaction.id
+            print(chat_id, "from interaction")
 
         return messages[::-1] # chronological order
     
