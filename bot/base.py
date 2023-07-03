@@ -1,8 +1,9 @@
-from ast import List
-import logging
+
+from enum import Enum
 
 import discord
-from discord import DeletedReferencedMessage, InteractionMessage, Message, MessageReference, app_commands
+from discord.app_commands import Choice
+from discord import DeletedReferencedMessage, Interaction, Message, MessageReference, app_commands
 from discord.ext.commands.bot import Bot, Context
 
 from langchain.memory.chat_message_histories import ChatMessageHistory
@@ -117,6 +118,32 @@ def ArxivBot(agent: ArxivAgent):
 
         return messages[::-1] # chronological order
     
+    summary = app_commands.Group(name="summary", description="Different types of paper summary methods")
+    
+    @summary.command(name="laymans", description="A layman's summary of a paper")
+    @app_commands.describe(paper="ID or URL of an arXiv paper")
+    async def laymans(interaction: discord.Interaction, paper: str):
+        await interaction.response.send_message("Placeholder reponse")
+    @summary.command(name="keypoints", description="A key points list summary of a paper")
+    @app_commands.describe(paper="ID or URL of an arXiv paper")
+    async def keypoints(interaction: discord.Interaction, paper: str):
+        await interaction.response.send_message("Placeholder reponse")
+    @summary.command(name="comprehensive", description="A comprehensive  summary of a paper")
+    @app_commands.describe(paper="ID or URL of an arXiv paper")
+    async def comprehensive(interaction: discord.Interaction, paper: str):
+        await interaction.response.send_message("Placeholder reponse")
+
+    bot.tree.add_command(summary)
+
+    class SummaryType(Enum):
+        keypoints = 0
+        laymans = 1
+        comprehensive = 2
+
+    @bot.tree.command(name="summaryx")
+    @app_commands.describe(paper="ID or URL of an arXiv paper")
+    async def summaryx(interaction: discord.Interaction, type: SummaryType, paper: str):
+        await interaction.response.send_message(f"Summary: type")
 
     return bot
 
