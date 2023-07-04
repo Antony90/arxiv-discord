@@ -107,6 +107,7 @@ class ArxivAgent:
         """Called when a paper is loaded from the `AddPapersTool`.
         Update paper metadata list for a chat."""
         self.user_paper_store.add_papers(chat_id, paper_metas)
+        self.user_paper_store.register(paper_metas)
 
     def _parse_tool_error(self, err: ToolException):
         return f"An error occurred: {err.args[0]}"

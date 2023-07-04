@@ -77,10 +77,19 @@ class PaperMetadata:
 @dataclass
 class LoadedPapersStore:
     _to_papers: Dict[str, list[PaperMetadata]] = field(default_factory=lambda: defaultdict(list))
+    _id_to_title: Dict[str, str] = field(default_factory=dict)
 
     def get(self, chat_id: str):
         return self._to_papers[chat_id]
 
     def add_papers(self, chat_id: str, paper_metas: List[PaperMetadata]):
         self._to_papers[chat_id].extend(paper_metas)
+
+    def register(self, papers: List[PaperMetadata]):
+        """Create mapping from id to title"""
+        for paper in papers:
+            self._id_to_title[paper.source] = paper.title
+
+    def get_title(self, paper_id: str):
+        return self._id_to_title[paper_id]
     

@@ -31,23 +31,23 @@ def ArxivBot(agent: ArxivAgent):
     # @app_commands.describe(message="First message of the conversation")
 
     @bot.tree.command(name="chat", description="Start a conversation with arXiv papers")
-    @app_commands.describe(papers="Optional list of papers to load by ID or URL.")
-    async def chat(interaction: discord.Interaction, papers: str = None):
-        await interaction.response.defer(thinking=True)
-        if papers is not None:
-            initial_msg = f"Load these papers: {papers}"
-        else:
-            initial_msg = "What can you do?"
+    async def chat(interaction: discord.Interaction):
+        await interaction.response.send_message("Hello, how can I help you?")
+        # await interaction.response.defer(thinking=True)
+        # if papers is not None:
+        #     initial_msg = f"Load these papers: {papers}"
+        # else:
+        #     initial_msg = "What can you do?"
 
-        chat_history = ChatMessageHistory()
+        # chat_history = ChatMessageHistory()
         
-        ai_response = await agent.acall(
-            input=initial_msg,
-            chat_id=interaction.id, # user msg that invoked the command
-            chat_history=chat_history
-        )
+        # ai_response = await agent.acall(
+        #     input=initial_msg,
+        #     chat_id=interaction.id, # user msg that invoked the command
+        #     chat_history=chat_history
+        # )
     
-        await interaction.followup.send(content=ai_response)
+        # await interaction.followup.send(content=ai_response)
             
         
     @bot.event
@@ -113,37 +113,22 @@ def ArxivBot(agent: ArxivAgent):
             messages.append(curr_msg)
         else:
             # exited loop without finding deleted msg, `curr_msg` must be bot's interaction response
+            print(type(curr_msg), type(curr_msg.interaction), curr_msg.content)
             chat_id = curr_msg.interaction.id
             print(chat_id, "from interaction")
 
         return messages[::-1] # chronological order
     
-    summary = app_commands.Group(name="summary", description="Different types of paper summary methods")
-    
-    @summary.command(name="laymans", description="A layman's summary of a paper")
-    @app_commands.describe(paper="ID or URL of an arXiv paper")
-    async def laymans(interaction: discord.Interaction, paper: str):
-        await interaction.response.send_message("Placeholder reponse")
-    @summary.command(name="keypoints", description="A key points list summary of a paper")
-    @app_commands.describe(paper="ID or URL of an arXiv paper")
-    async def keypoints(interaction: discord.Interaction, paper: str):
-        await interaction.response.send_message("Placeholder reponse")
-    @summary.command(name="comprehensive", description="A comprehensive  summary of a paper")
-    @app_commands.describe(paper="ID or URL of an arXiv paper")
-    async def comprehensive(interaction: discord.Interaction, paper: str):
-        await interaction.response.send_message("Placeholder reponse")
-
-    bot.tree.add_command(summary)
-
     class SummaryType(Enum):
         keypoints = 0
         laymans = 1
         comprehensive = 2
 
-    @bot.tree.command(name="summaryx")
+    @bot.tree.command(name="summarize", description="Summarize a paper")
     @app_commands.describe(paper="ID or URL of an arXiv paper")
-    async def summaryx(interaction: discord.Interaction, type: SummaryType, paper: str):
-        await interaction.response.send_message(f"Summary: type")
+    @app_commands.describe(type="Type of summary. Defaults to keypoints")
+    async def summarize(interaction: discord.Interaction, paper: str, type: SummaryType):
+        await interaction.response.send_message(f"Summary: {type}")
 
     return bot
 

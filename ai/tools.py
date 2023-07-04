@@ -1,7 +1,7 @@
 import asyncio
 from pydantic import BaseModel, Extra, Field, PrivateAttr
 
-from langchain import PromptTemplate
+from langchain import LLMChain, PromptTemplate
 from langchain.tools import BaseTool
 from langchain.tools.base import ToolException
 from langchain.chains import RetrievalQAWithSourcesChain, RetrievalQA
@@ -12,6 +12,7 @@ from langchain.chains.query_constructor.base import AttributeInfo
 from langchain.callbacks.manager import CallbackManagerForToolRun
 from langchain.base_language import BaseLanguageModel
 from langchain.vectorstores.base import VectorStore
+from langchain.retrievers.multi_query import MultiQueryRetriever, LineListOutputParser
 from langchain.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
@@ -19,8 +20,12 @@ from langchain.docstore.document import Document
 
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
 
+
+import logging
+logging.getLogger('langchain.retrievers.multi_query').setLevel(logging.INFO)
+
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
-from ai.prompts import SEARCH_TOOL
+from ai.prompts import MULTI_QUERY_PROMPT, SEARCH_TOOL
 
 
 
@@ -90,11 +95,24 @@ class PaperQATool(BaseTool):
         filter = {
             "source": paper_id
         }
+        paper_title = self._user_paper_store.get_title(paper_id)
+        
         retriever = self.vectorstore.as_retriever(search_kwargs={"filter": filter})
+        # generate multiple queries from different perspectives to pull a richer set of Documents
+        output_parser = LineListOutputParser()
+        llm_chain = LLMChain(llm=self.llm, prompt=MULTI_QUERY_PROMPT(paper_title), output_parser=output_parser)
+
+        # TODO: implement async get_relevant_docs with subclass
+        mq_retriever = MultiQueryRetriever(
+            retriever=retriever,
+            llm_chain=llm_chain,
+            parser_key="lines"
+        )
+            
         qa = RetrievalQA.from_chain_type(
             llm=self.llm,
             chain_type="stuff",
-            retriever=retriever
+            retriever=mq_retriever
         )
         return qa
     
@@ -137,7 +155,7 @@ class AddPapersTool(BaseTool):
             else:
                 # take the first result's metadata
                 existing_metas.append(PaperMetadata(**result["metadatas"][0]))
-        print(f"{to_download=}")
+
         # notify callback with existing papers
         self.paper_load_callback(existing_metas, chat_id)
             
