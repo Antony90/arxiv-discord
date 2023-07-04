@@ -1,13 +1,16 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
+import io
 from typing import Dict, List, Optional
 from langchain.docstore.document import Document
+import fitz
 import asyncio
 
 # wrapper which automatically parses PDF into unicode text
 from langchain.document_loaders.arxiv import ArxivAPIWrapper
 # base search which returns Result objects
 from arxiv import SortCriterion, SortOrder, Search
+import requests
 
 class ArxivFetch:
 
@@ -20,19 +23,59 @@ class ArxivFetch:
         )
 
     @staticmethod
+    def url_from_id(paper_id: str) -> str:
+        return f"https://arxiv.org/pdf/{paper_id}.pdf"
+    
+    @classmethod
+    def get_pdf_txt(cls, paper_id: str, exclude_references=True):
+        resp = requests.get(cls.url_from_id(paper_id), stream=True)
+        stream = io.BytesIO(resp.content)
+
+        page_txts = []
+        with fitz.Document(stream=stream) as pdf:
+            for page in pdf.pages():
+                txt = page.get_text()
+                page_txts.append(txt)
+        
+        pdf_contents = "".join(page_txts)
+
+        if exclude_references:
+            # TODO: use LLM to classify each "reference" occurance by showing surrounding text
+            # find last occurence of 'references' incase the paper content mentions it before the heading
+            idx = pdf_contents.lower().rindex("reference")
+            print("Excluded references", pdf_contents[idx:idx+200])
+            pdf_contents = pdf_contents[:idx]
+        
+        return pdf_contents
+
+    @staticmethod
     def _short_id(url: str):
         """Convert https://arxiv.org/abs/XXXX.YYYYYvZ to XXXX.YYYYY"""
         return url.split("/")[-1].split("v")[0]
 
     def get_doc_sync(self, paper_id: str) -> Document:
-        docs = self._search.load(query=paper_id)
-        doc = docs[0]
-        doc.metadata = {
-            "source": self._short_id(doc.metadata["entry_id"]),
-            "title": doc.metadata["Title"]
+        """Get a PDF contents for the paper_id, exluding all text after the "References" section.
+        This saves a lot of tokens for summarization methods and reduces size in vector store."""
+        # use arXiv API for the paper title
+        search = Search(query=paper_id, max_results=1)
+        
+        found = False
+        for result in search.results():
+            found = True
+
+            title = result.title
+            break
+        
+        if not found:
+            raise Exception("Paper not found")
+        
+        # get the paper text, excluding all text after references
+        pdf_txt = self.get_pdf_txt(paper_id, exclude_references=True)
+        metadata = {
+            "source": paper_id,
+            "title": title
         }
-        print(f"Downloaded {doc.metadata}")
-        return doc
+        return Document(page_content=pdf_txt, metadata=metadata)
     
     async def get_doc_async(self, paper_id: str):
         return await asyncio.get_event_loop().run_in_executor(None, self.get_doc_sync, paper_id)

@@ -2,6 +2,7 @@
 
 __pycache__
 vectorstore
+test.ipynb
 
 # bot logging dir
 logs
