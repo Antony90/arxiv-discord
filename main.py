@@ -3,7 +3,6 @@ __import__("dotenv").load_dotenv()
 import asyncio
 import logging
 import discord
-from discord.ext.commands import bot
 
 from langchain.memory.chat_message_histories import ChatMessageHistory
 from ai.agent import ArxivAgent
@@ -11,27 +10,26 @@ from ai.agent import ArxivAgent
 from bot import ArxivBot
 from config import CONFIG
 
+import argparse
 
 
-handler = logging.FileHandler(filename='logs/bot.log', encoding='utf-8', mode='w')
+def run_bot(agent: ArxivAgent):
+    handler = logging.FileHandler(filename='logs/bot.log', encoding='utf-8', mode='w')
 
-intents = discord.Intents.default()
-intents.message_content = True
+    intents = discord.Intents.default()
+    intents.message_content = True
 
-agent = ArxivAgent(verbose=True)
-
-bot = ArxivBot(agent)
-bot.run(
-    token=CONFIG.BOT_TOKEN, 
-    log_handler=handler, 
-    log_level=logging.DEBUG
-)
+    bot = ArxivBot(agent)
+    bot.run(
+        token=CONFIG.BOT_TOKEN, 
+        log_handler=handler, 
+        log_level=logging.DEBUG
+    )
 
 
-async def main_test():
-    from ai.agent import ArxivAgent
+async def run_test(agent: ArxivAgent):
+    # terminal input test
     
-    agent = ArxivAgent(verbose=True)
     chat_id = "test"
     message_history = ChatMessageHistory(messages=[])
     
@@ -43,3 +41,19 @@ async def main_test():
         )
         message_history.add_ai_message(ai_response)
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("arXiv AI assistant")
+    parser.add_argument("-t", "--test", action="store_true")
+    args = parser.parse_args()
+
+    agent = ArxivAgent(verbose=True)
+
+    try:
+        if args.test:
+            print("Starting REPL")
+            asyncio.run(run_test(agent))
+        else:
+            print("Starting bot")
+            run_bot(agent)
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt: exiting\n")

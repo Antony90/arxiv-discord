@@ -1,15 +1,12 @@
 import asyncio
-from pydantic import BaseModel, Extra, Field, PrivateAttr
+from pydantic import BaseModel, Extra, Field
 
 from langchain import LLMChain, PromptTemplate
 from langchain.tools import BaseTool
 from langchain.tools.base import ToolException
 from langchain.chains import RetrievalQAWithSourcesChain, RetrievalQA
-from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain.chains.summarize import load_summarize_chain
-from langchain.chains.combine_documents.base import BaseCombineDocumentsChain
-from langchain.chains.query_constructor.base import AttributeInfo
-from langchain.callbacks.manager import CallbackManagerForToolRun
+from langchain.chat_models.base import BaseChatModel
 from langchain.base_language import BaseLanguageModel
 from langchain.vectorstores.base import VectorStore
 from langchain.retrievers.multi_query import MultiQueryRetriever, LineListOutputParser
@@ -27,13 +24,57 @@ logging.getLogger('langchain.retrievers.multi_query').setLevel(logging.INFO)
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
 from ai.prompts import MAP_PROMPT, MULTI_QUERY_PROMPT, REDUCE_COMPREHENSIVE_PROMPT, REDUCE_KEYPOINTS_PROMPT, REDUCE_LAYMANS_PROMPT, SEARCH_TOOL
 
+class BasePaperTool(BaseTool):
+    """Base class for tools which may want to load a paper before running their function."""
 
+    vectorstore: Chroma
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=0
+    ) 
+
+    def load_paper(self, paper_id: str) -> bool:
+        """Load a paper. Will download if it doesn't exist in vectorstore.
+        return: Whether it was already in the vectorstore."""
+        
+        # check for existing Docs of this paper
+        result = self.vectorstore.get(where={"source":paper_id})
+        if len(result["documents"]) != 0: # any key can be checked
+            print(f"{paper_id} already in db")
+            return True # already in db
+
+        print(f"{paper_id} not in db, downloading")
+        doc = arxiv_fetch.get_doc_sync(paper_id)
+        
+        # split and embed docs in vectorstore
+        split_docs = self.text_splitter.split_documents([doc])
+        self.vectorstore.add_documents(split_docs)
+        return False
+    
+    async def aload_paper(self, paper_id: str) -> bool:
+        """Load a paper. Will download if it doesn't exist in vectorstore.
+        return: Whether it was already in the vectorstore."""
+        
+        # check for existing Docs of this paper
+        result = self.vectorstore.get(where={"source":paper_id})
+        if len(result["documents"]) != 0: # any key can be checked
+            print(f"{paper_id} already in db")
+            return True # already in db
+
+        print(f"{paper_id} not in db, downloading")
+        doc = await arxiv_fetch.get_doc_async(paper_id)
+        print(f"{paper_id} downloaded")
+        
+        # split and embed docs in vectorstore
+        split_docs = self.text_splitter.split_documents([doc])
+        self.vectorstore.add_documents(split_docs)
+        return False
 
 
 arxiv_fetch = ArxivFetch()
 
 class ArxivSearchSchema(BaseModel):
-    query: str = Field(description="arXiv search query. Vague terms are acceptable and do not need clarification. Example: \"Large language models medical diagnosis\"")
+    query: str = Field(description="arXiv search query. Specific queries are preferred.")
 
 
 class ArxivSearchTool(BaseTool):
@@ -51,43 +92,32 @@ class ArxivSearchTool(BaseTool):
             raise ToolException("No results found")
 
 class PaperQASchema(BaseModel):
-    query: str = Field(description="A question to ask about a currently loaded paper. Cannot be empty.")
+    question: str = Field(description="A question to ask about a paper. Cannot be empty. Do not include the paper ID")
     paper_id: str = Field(description="ID of paper to query")
-    chat_id: str = Field(description="Chat ID of current conversation")
 
-class PaperQATool(BaseTool):
-    name = "arXiv-Paper-Query"
-    description = "Source of factual information for a loaded paper. The paper must be loaded. When using the output of this tool, retain as much information as possible, do not shorten."
+class PaperQATool(BasePaperTool):
+    name = "arXiv-Paper-Question"
+    description = "Ask a question about the contents of a paper. Source of factual information for an arXiv paper. Don't include paper ID/URL in the question"
     args_schema: Type[PaperQASchema] = PaperQASchema
 
     # private attrs
-    llm: BaseLanguageModel # for QA retrieval chain prompting
+    llm: BaseChatModel # for QA retrieval chain prompting
     vectorstore: Chroma # embeddings of currently loaded PDFs, must support self query retrieval
     _user_paper_store: LoadedPapersStore
 
     class Config:
         extra = Extra.allow
     
-    def _validate(self, paper_id: str, chat_id: str) -> None:
-        # check that the paper is already loaded for this chat
-        # prevents vague queries which cause SelfQueryRetriever to not filter by paper ids
-        if not len(paper_id) > 0: # TODO: check if valid arXiv ID
-            raise ToolException(f"\"{paper_id}\" is not a valid arXiv ID.")
-        is_loaded = paper_id in map(lambda meta: meta.source, self._user_paper_store.get(chat_id))
-        if not is_loaded:
-            raise ToolException(f"Paper {paper_id} is not loaded for this chat, would you like to load it?")
-
-
-    def _run(self, query: str, paper_id: str, chat_id: str) -> str:
-        self._validate(paper_id, chat_id)
+    def _run(self, question: str, paper_id: str) -> str:
+        self.load_paper(paper_id)
         qa = self._make_qa_chain(paper_id)
-        return qa.run(query)
+        return qa.run(question)
 
 
-    async def _arun(self, query: str, paper_id: str, chat_id: str) -> str:
-        self._validate(paper_id, chat_id)
+    async def _arun(self, question: str, paper_id: str) -> str:
+        await self.aload_paper(paper_id)
         qa = self._make_qa_chain(paper_id)
-        return await qa.arun(query)
+        return qa.run(question)
 
 
     def _make_qa_chain(self, paper_id: str):
@@ -95,12 +125,13 @@ class PaperQATool(BaseTool):
         filter = {
             "source": paper_id
         }
-        paper_title = self._user_paper_store.get_title(paper_id)
+        # TODO: use persistent storage to store title
+        # paper_title = self._user_paper_store.get_title(paper_id)
         
         retriever = self.vectorstore.as_retriever(search_kwargs={"filter": filter})
         # generate multiple queries from different perspectives to pull a richer set of Documents
         output_parser = LineListOutputParser()
-        llm_chain = LLMChain(llm=self.llm, prompt=MULTI_QUERY_PROMPT(paper_title), output_parser=output_parser)
+        llm_chain = LLMChain(llm=self.llm, prompt=MULTI_QUERY_PROMPT, output_parser=output_parser)
 
         # TODO: implement async get_relevant_docs with subclass
         mq_retriever = MultiQueryRetriever(
@@ -123,7 +154,7 @@ class AddPapersSchema(BaseModel):
     
 class AddPapersTool(BaseTool):
     name = "Add-arXiv-papers"
-    description = "Loads arXiv papers into your memory. Must be done before a paper can be queried."
+    description = "Loads arXiv papers into your memory. Must be done before any function can be applied to a paper."
     args_schema: Type[AddPapersSchema] = AddPapersSchema
 
     # private attrs
@@ -178,17 +209,20 @@ class AddPapersTool(BaseTool):
 
 class SummarizePaperSchema(BaseModel):
     paper_id: str = Field(description="arXiv paper id")
-    type: str = Field(description="Type of summary. One of: {keypoints, laymans, comprehensive}")
+    # Need to mention default values in natural language
+    # since OpenAI function calling JSON does not specify exactly what the default value is.
+    # This means the LLM cannot reason about whether the default value or another value is more appopriate
+    type: str = Field(description="Type of summary. One of: {keypoints, laymans, comprehensive}, default to keypoints")
 
-class SummarizePaperTool(BaseTool):
+class SummarizePaperTool(BasePaperTool):
     name = "Summarize-arXiv-Paper"
-    description = "Summarizes a loaded paper, given its paper id."
+    description = "Summarizes a paper given its ID."
 
     args_schema: Type[SummarizePaperSchema] = SummarizePaperSchema
 
     # private attrs
     vectorstore: Chroma 
-    llm: BaseLanguageModel
+    llm: BaseChatModel
 
     _summary_prompt = {
         "keypoints": REDUCE_KEYPOINTS_PROMPT, 
@@ -196,19 +230,14 @@ class SummarizePaperTool(BaseTool):
         "comprehensive": REDUCE_COMPREHENSIVE_PROMPT
     }
 
-
-    # def __init__(self, llm: BaseLanguageModel, vectorstore: Chroma, **data) -> None:
-    #     super().__init__(**data)
-    #     self.llm = llm
-    #     self.vectorstore = vectorstore
-
-
-    def _run(self, paper_id: str, type="keypoints"):
+    def _run(self, paper_id: str):
         try:
             combine_prompt = self._summary_prompt[type]
         except KeyError:
             raise ToolException(f"Unknown summary type: \"{type}\"")
+        self.load_paper(paper_id)
 
+        # TODO: check existing summary here from persistent storage
 
         map_reduce_chain = load_summarize_chain(
             llm=self.llm, 
@@ -218,9 +247,10 @@ class SummarizePaperTool(BaseTool):
             
         )
         result = self.vectorstore.get(where={"source": paper_id})
-        docs = result["documents"]
-        if len(docs) == 0:
+        chunks = result["documents"]
+        if len(chunks) == 0:
             raise ToolException("Document not loaded or does not exist")
+        docs = [Document(page_content=chunk) for chunk in chunks]
         return map_reduce_chain.run(docs)
 
     async def _arun(self, paper_id: str, type="keypoints"):
@@ -228,7 +258,7 @@ class SummarizePaperTool(BaseTool):
             combine_prompt = self._summary_prompt[type]
         except KeyError:
             raise ToolException(f"Unknown summary type: \"{type}\"")
-
+        await self.aload_paper(paper_id)
 
         map_reduce_chain = load_summarize_chain(
             llm=self.llm, 
@@ -238,16 +268,13 @@ class SummarizePaperTool(BaseTool):
             
         )
         result = self.vectorstore.get(where={"source": paper_id})
-        docs = result["documents"]
-        if len(docs) == 0:
-            raise ToolException("Document not loaded")
+        chunks = result["documents"]
+        if len(chunks) == 0:
+            raise ToolException("Document not loaded or does not exist")
+        
+        docs = [Document(page_content=chunk) for chunk in chunks]
         return await map_reduce_chain.arun(docs)
 
-class KeyPointsTool(BaseTool):
-    pass
 
 class FiveKeywordsTool(BaseTool):
-    pass
-
-class LaymansSummary(BaseTool):
     pass

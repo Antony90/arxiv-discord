@@ -14,7 +14,7 @@ from langchain.schema import SystemMessage, BaseChatMessageHistory
 from langchain.tools.base import ToolException, BaseTool
 
 from ai.arxiv import LoadedPapersStore, PaperMetadata
-from ai.prompts import AGENT_PROMPT, PAPERS_PROMPT
+from ai.prompts import AGENT_PROMPT
 from ai.tools import AddPapersTool, ArxivSearchTool, PaperQATool, SummarizePaperTool
 
 
@@ -33,12 +33,15 @@ class ArxivAgent:
             embedding_function=self.embeddings,
             persist_directory="vectorstore"
         )
+        num_vects = len(self.vectorstore.get()["documents"])
+        print(f"Loaded collection `{self.vectorstore._collection.name}` from directory `{self.vectorstore._persist_directory}` with {num_vects} vector(s)")
 
         # metadata of loaded docs in vectorstore for each conversation,
         # to be inserted in prompt as system message
         self.user_paper_store = LoadedPapersStore() 
         
         self.agent = self._init_agent()
+    
 
     async def acall(self, input, chat_id: str, chat_history: BaseChatMessageHistory):
         """Call the model with a new user message and its message history.
@@ -54,8 +57,8 @@ class ArxivAgent:
             return_messages=True,
             input_key="input",
             memory_key="memory"
-        ) # TODO: load chat_memory from discord msg history
-
+        )
+        
         exec_chain = AgentExecutor.from_agent_and_tools(
             agent=self.agent,
             tools=self.agent.tools,
@@ -75,15 +78,8 @@ class ArxivAgent:
         )
 
     def _init_agent(self):
-        prompt_template = PromptTemplate(
-            input_variables=["papers", "chat_id"],
-            template=PAPERS_PROMPT
-        )
-        papers_prompt = SystemMessagePromptTemplate(
-            prompt=prompt_template
-        )
         message_history = MessagesPlaceholder(variable_name="memory")
-        extra_prompt_messages = [papers_prompt, message_history]
+        extra_prompt_messages = [message_history]
         system_message = SystemMessage(
             content=AGENT_PROMPT
         )
@@ -117,26 +113,27 @@ class ArxivAgent:
     def _get_tools(self) -> List[BaseTool]:
         arxiv_search = ArxivSearchTool()
 
-        add_papers = AddPapersTool(
-                vectorstore=self.vectorstore, 
-                paper_load_callback=self._on_paper_load, 
-                handle_tool_error=self._parse_tool_error
-            )
+        # add_papers = AddPapersTool(
+        #         vectorstore=self.vectorstore, 
+        #         paper_load_callback=self._on_paper_load, 
+        #         handle_tool_error=self._parse_tool_error
+        #     )
         
         paper_qa = PaperQATool(
-                llm=self.llm, 
+                return_direct=True,
+                llm=self.chat_llm, 
                 vectorstore=self.vectorstore,
                 _user_paper_store=self.user_paper_store,
                 handle_tool_error=self._parse_tool_error
             )
 
         paper_summarize = SummarizePaperTool(
-            llm=self.llm,
+            llm=self.chat_llm,
             vectorstore=self.vectorstore,
             handle_tool_error=self._parse_tool_error
         )
 
-        return [arxiv_search, add_papers, paper_qa, paper_summarize]
+        return [arxiv_search, paper_qa, paper_summarize]
     
 
 
