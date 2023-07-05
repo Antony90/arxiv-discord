@@ -54,3 +54,44 @@ of distance-based similarity search. Provide these alternative questions seperat
 Original question: {{question}}""",
 input_variables=["question"]
 )
+
+
+
+# SUMMARIZATION
+
+MAP_PROMPT = PromptTemplate(input_variables=["text"], template=\
+"""Summarize this text from an academic paper. Extract any key points with reasoning:
+
+"{text}"
+
+Summary:
+""")
+
+
+REDUCE_KEYPOINTS_PROMPT = PromptTemplate(input_variables=["text"], template=\
+"""Write a summary collated from this collection of key points extracted from an academic paper.
+The summary should highlight the core argument, conclusions and evidence, and answer the user's query.
+The summary should be structured in bulleted lists following the headings Core Argument, Evidence, and Conclusions but this can be adapted.
+Key points:
+{text}
+
+Summary:
+""")
+
+
+REDUCE_LAYMANS_PROMPT = PromptTemplate(input_variables=["text"], template=\
+"""Write a laymans summary of the key points from a paper, focussing on objective fact:
+
+
+"{text}"
+
+
+CONCISE SUMMARY:""")
+REDUCE_COMPREHENSIVE_PROMPT = PromptTemplate(input_variables=["text"], template=\
+"""Write a concise summary of the following paper, focussing on objective fact:
+
+
+"{text}"
+
+
+CONCISE SUMMARY:""")

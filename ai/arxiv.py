@@ -43,7 +43,6 @@ class ArxivFetch:
             # TODO: use LLM to classify each "reference" occurance by showing surrounding text
             # find last occurence of 'references' incase the paper content mentions it before the heading
             idx = pdf_contents.lower().rindex("reference")
-            print("Excluded references", pdf_contents[idx:idx+200])
             pdf_contents = pdf_contents[:idx]
         
         return pdf_contents

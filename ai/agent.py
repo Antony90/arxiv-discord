@@ -1,11 +1,12 @@
 from typing import List
 from pydantic import Extra
 
-from langchain.callbacks import StdOutCallbackHandler
+from langchain.callbacks import StdOutCallbackHandler, OpenAICallbackHandler
 from langchain.prompts import MessagesPlaceholder, PromptTemplate, SystemMessagePromptTemplate
 from langchain.agents import AgentExecutor
 from langchain.agents.openai_functions_agent.base import OpenAIFunctionsAgent
 from langchain.memory import ConversationBufferMemory
+from langchain.llms import OpenAI
 from langchain.chat_models import ChatOpenAI
 from langchain.vectorstores import Chroma
 from langchain.embeddings import OpenAIEmbeddings
@@ -19,7 +20,8 @@ from ai.tools import AddPapersTool, ArxivSearchTool, PaperQATool, SummarizePaper
 
 class ArxivAgent:
     embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-    llm = ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo-0613")
+    llm = OpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
+    chat_llm = ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
     
     def __init__(self, verbose=False):
         self.verbose = verbose
@@ -90,7 +92,7 @@ class ArxivAgent:
             system_message=system_message
         )
         return OpenAIFunctionsAgent(
-            llm=self.llm,
+            llm=self.chat_llm,
             tools=self._get_tools(),
             prompt=prompt,
             verbose=self.verbose
@@ -128,9 +130,13 @@ class ArxivAgent:
                 handle_tool_error=self._parse_tool_error
             )
 
-        # paper_summarize = SummarizePaperTool(llm=self.llm, vectorstore=self.vectorstore)
+        paper_summarize = SummarizePaperTool(
+            llm=self.llm,
+            vectorstore=self.vectorstore,
+            handle_tool_error=self._parse_tool_error
+        )
 
-        return [arxiv_search, add_papers, paper_qa]
+        return [arxiv_search, add_papers, paper_qa, paper_summarize]
     
 
 

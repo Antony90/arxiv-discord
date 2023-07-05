@@ -25,7 +25,7 @@ import logging
 logging.getLogger('langchain.retrievers.multi_query').setLevel(logging.INFO)
 
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
-from ai.prompts import MULTI_QUERY_PROMPT, SEARCH_TOOL
+from ai.prompts import MAP_PROMPT, MULTI_QUERY_PROMPT, REDUCE_COMPREHENSIVE_PROMPT, REDUCE_KEYPOINTS_PROMPT, REDUCE_LAYMANS_PROMPT, SEARCH_TOOL
 
 
 
@@ -177,43 +177,71 @@ class AddPapersTool(BaseTool):
         
 
 class SummarizePaperSchema(BaseModel):
-    query: str = Field(description="arXiv paper id")
+    paper_id: str = Field(description="arXiv paper id")
+    type: str = Field(description="Type of summary. One of: {keypoints, laymans, comprehensive}")
 
 class SummarizePaperTool(BaseTool):
     name = "Summarize-arXiv-Paper"
     description = "Summarizes a loaded paper, given its paper id."
 
     args_schema: Type[SummarizePaperSchema] = SummarizePaperSchema
-    chain: BaseCombineDocumentsChain = Field(exclude=True, default=None)
-    vectorstore: Chroma = Field(exclude=True, default=None)
+
+    # private attrs
+    vectorstore: Chroma 
+    llm: BaseLanguageModel
+
+    _summary_prompt = {
+        "keypoints": REDUCE_KEYPOINTS_PROMPT, 
+        "laymans": REDUCE_LAYMANS_PROMPT,
+        "comprehensive": REDUCE_COMPREHENSIVE_PROMPT
+    }
 
 
-    def __init__(self, llm: BaseLanguageModel, vectorstore: Chroma, **data) -> None:
-        super().__init__(**data)
-        prompt = PromptTemplate(
-            input_variables=["text"],
-            template=\
-"""Write a concise summary of the following paper, focussing on objective fact:
+    # def __init__(self, llm: BaseLanguageModel, vectorstore: Chroma, **data) -> None:
+    #     super().__init__(**data)
+    #     self.llm = llm
+    #     self.vectorstore = vectorstore
 
 
-"{text}"
+    def _run(self, paper_id: str, type="keypoints"):
+        try:
+            combine_prompt = self._summary_prompt[type]
+        except KeyError:
+            raise ToolException(f"Unknown summary type: \"{type}\"")
 
 
-CONCISE SUMMARY:""")
-
-        self.chain = load_summarize_chain(llm, chain_type="stuff", prompt=prompt)
-        self.vectorstore = vectorstore
-
-    def _run(self, query):
-        raise Exception("Bonk! Too many tokens here!")
-        
-        result = self.vectorstore._collection.get(where={"source": query})
+        map_reduce_chain = load_summarize_chain(
+            llm=self.llm, 
+            chain_type="map_reduce", 
+            map_prompt=MAP_PROMPT,
+            combine_prompt=combine_prompt
+            
+        )
+        result = self.vectorstore.get(where={"source": paper_id})
         docs = result["documents"]
-        return self.chain.run(docs)
+        if len(docs) == 0:
+            raise ToolException("Document not loaded or does not exist")
+        return map_reduce_chain.run(docs)
 
-    async def _arun(self, query):
-        return "This is a placeholder summary."
-        # return await self.chain.arun(query)
+    async def _arun(self, paper_id: str, type="keypoints"):
+        try:
+            combine_prompt = self._summary_prompt[type]
+        except KeyError:
+            raise ToolException(f"Unknown summary type: \"{type}\"")
+
+
+        map_reduce_chain = load_summarize_chain(
+            llm=self.llm, 
+            chain_type="map_reduce", 
+            map_prompt=MAP_PROMPT,
+            combine_prompt=combine_prompt
+            
+        )
+        result = self.vectorstore.get(where={"source": paper_id})
+        docs = result["documents"]
+        if len(docs) == 0:
+            raise ToolException("Document not loaded")
+        return await map_reduce_chain.arun(docs)
 
 class KeyPointsTool(BaseTool):
     pass
