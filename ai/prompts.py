@@ -31,13 +31,13 @@ Only use if user specifically wants you to search arXiv.
 # Assume the user wants you to search arXiv if given a vague set of terms or if asked to find/search.
 
 # paper_title cannot be easily substituted at runtime, so generate the prompt with it fixed
-MULTI_QUERY_PROMPT = PromptTemplate(
-template="""You are an expert reserach assistant with access to arXiv papers.
+MULTI_QUERY_PROMPT = lambda title: PromptTemplate(
+template=f"""You are an expert reserach assistant with access to arXiv papers.
 Your task is to generate 3 different versions of the given user 
-question to retrieve relevant documents from a vector database for a paper.
+question to retrieve relevant documents from a vector database for a paper titled {title}.
 By generating multiple perspectives on the user question, your goal is to help the user overcome some of the limitations 
 of distance-based similarity search. Provide these alternative questions seperated by newlines. 
-Original question: {question}""",
+Original question: {{question}}""",
 input_variables=["question"]
 )
 

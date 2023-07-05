@@ -19,6 +19,8 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
 
 
 import logging
+
+from ai.store import PaperStore
 logging.getLogger('langchain.retrievers.multi_query').setLevel(logging.INFO)
 
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
@@ -28,6 +30,7 @@ class BasePaperTool(BaseTool):
     """Base class for tools which may want to load a paper before running their function."""
 
     vectorstore: Chroma
+    paper_store: PaperStore
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=0
@@ -43,9 +46,9 @@ class BasePaperTool(BaseTool):
             print(f"{paper_id} already in db")
             return True # already in db
 
-        print(f"{paper_id} not in db, downloading")
         doc = arxiv_fetch.get_doc_sync(paper_id)
-        
+        self.paper_store.save_title(doc.metadata["title"])
+
         # split and embed docs in vectorstore
         split_docs = self.text_splitter.split_documents([doc])
         self.vectorstore.add_documents(split_docs)
@@ -61,13 +64,12 @@ class BasePaperTool(BaseTool):
             print(f"{paper_id} already in db")
             return True # already in db
 
-        print(f"{paper_id} not in db, downloading")
         doc = await arxiv_fetch.get_doc_async(paper_id)
-        print(f"{paper_id} downloaded")
+        self.paper_store.save_title(doc.metadata["title"])
         
         # split and embed docs in vectorstore
         split_docs = self.text_splitter.split_documents([doc])
-        self.vectorstore.add_documents(split_docs)
+        self.vectorstore.add_documents(split_docs) # TODO: find store with async implementation
         return False
 
 
@@ -103,7 +105,6 @@ class PaperQATool(BasePaperTool):
     # private attrs
     llm: BaseChatModel # for QA retrieval chain prompting
     vectorstore: Chroma # embeddings of currently loaded PDFs, must support self query retrieval
-    _user_paper_store: LoadedPapersStore
 
     class Config:
         extra = Extra.allow
@@ -125,13 +126,12 @@ class PaperQATool(BasePaperTool):
         filter = {
             "source": paper_id
         }
-        # TODO: use persistent storage to store title
-        # paper_title = self._user_paper_store.get_title(paper_id)
+        paper_title = self.paper_store.get_title(paper_id)
         
         retriever = self.vectorstore.as_retriever(search_kwargs={"filter": filter})
         # generate multiple queries from different perspectives to pull a richer set of Documents
         output_parser = LineListOutputParser()
-        llm_chain = LLMChain(llm=self.llm, prompt=MULTI_QUERY_PROMPT, output_parser=output_parser)
+        llm_chain = LLMChain(llm=self.llm, prompt=MULTI_QUERY_PROMPT(paper_title), output_parser=output_parser)
 
         # TODO: implement async get_relevant_docs with subclass
         mq_retriever = MultiQueryRetriever(
@@ -237,21 +237,25 @@ class SummarizePaperTool(BasePaperTool):
             raise ToolException(f"Unknown summary type: \"{type}\"")
         self.load_paper(paper_id)
 
-        # TODO: check existing summary here from persistent storage
+        existing_summary = self.paper_store.get_summary(paper_id, type)
+        if existing_summary:
+            return existing_summary
 
         map_reduce_chain = load_summarize_chain(
             llm=self.llm, 
             chain_type="map_reduce", 
             map_prompt=MAP_PROMPT,
             combine_prompt=combine_prompt
-            
         )
+            
         result = self.vectorstore.get(where={"source": paper_id})
         chunks = result["documents"]
         if len(chunks) == 0:
             raise ToolException("Document not loaded or does not exist")
         docs = [Document(page_content=chunk) for chunk in chunks]
-        return map_reduce_chain.run(docs)
+        summary = map_reduce_chain.run(docs)
+
+        self.paper_store.save_summary(paper_id, type, summary)
 
     async def _arun(self, paper_id: str, type="keypoints"):
         try:
@@ -260,20 +264,26 @@ class SummarizePaperTool(BasePaperTool):
             raise ToolException(f"Unknown summary type: \"{type}\"")
         await self.aload_paper(paper_id)
 
+        existing_summary = self.paper_store.get_summary(paper_id, type)
+        if existing_summary:
+            return existing_summary
+
         map_reduce_chain = load_summarize_chain(
             llm=self.llm, 
             chain_type="map_reduce", 
             map_prompt=MAP_PROMPT,
             combine_prompt=combine_prompt
-            
         )
+            
         result = self.vectorstore.get(where={"source": paper_id})
         chunks = result["documents"]
         if len(chunks) == 0:
             raise ToolException("Document not loaded or does not exist")
         
         docs = [Document(page_content=chunk) for chunk in chunks]
-        return await map_reduce_chain.arun(docs)
+        summary = await map_reduce_chain.arun(docs)
+
+        self.paper_store.save_summary(paper_id, type, summary)
 
 
 class FiveKeywordsTool(BaseTool):

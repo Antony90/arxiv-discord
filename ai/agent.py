@@ -15,7 +15,9 @@ from langchain.tools.base import ToolException, BaseTool
 
 from ai.arxiv import LoadedPapersStore, PaperMetadata
 from ai.prompts import AGENT_PROMPT
+from ai.store import PaperStore
 from ai.tools import AddPapersTool, ArxivSearchTool, PaperQATool, SummarizePaperTool
+from config import CONFIG
 
 
 class ArxivAgent:
@@ -36,10 +38,7 @@ class ArxivAgent:
         num_vects = len(self.vectorstore.get()["documents"])
         print(f"Loaded collection `{self.vectorstore._collection.name}` from directory `{self.vectorstore._persist_directory}` with {num_vects} vector(s)")
 
-        # metadata of loaded docs in vectorstore for each conversation,
-        # to be inserted in prompt as system message
-        self.user_paper_store = LoadedPapersStore() 
-        
+        self.paper_store = PaperStore(CONFIG.PAPER_STORE_PATH)        
         self.agent = self._init_agent()
     
 
@@ -67,14 +66,8 @@ class ArxivAgent:
             callbacks=[StdOutCallbackHandler("red")]
         )
 
-        # add loaded papers to context so it knows which can be queried
-        paper_metas = self.user_paper_store.get(chat_id)
-        papers = self._get_loaded_papers_msg(paper_metas)
-        
         return await exec_chain.arun(
-            input=input, 
-            papers=papers, 
-            chat_id=chat_id
+            input=input
         )
 
     def _init_agent(self):
@@ -101,39 +94,32 @@ class ArxivAgent:
         else:
             return "NONE"
 
-    def _on_paper_load(self, paper_metas: List[PaperMetadata], chat_id: str) -> None:
-        """Called when a paper is loaded from the `AddPapersTool`.
-        Update paper metadata list for a chat."""
-        self.user_paper_store.add_papers(chat_id, paper_metas)
-        self.user_paper_store.register(paper_metas)
-
     def _parse_tool_error(self, err: ToolException):
         return f"An error occurred: {err.args[0]}"
     
     def _get_tools(self) -> List[BaseTool]:
         arxiv_search = ArxivSearchTool()
 
-        # add_papers = AddPapersTool(
-        #         vectorstore=self.vectorstore, 
-        #         paper_load_callback=self._on_paper_load, 
-        #         handle_tool_error=self._parse_tool_error
-        #     )
-        
         paper_qa = PaperQATool(
-                return_direct=True,
-                llm=self.chat_llm, 
-                vectorstore=self.vectorstore,
-                _user_paper_store=self.user_paper_store,
-                handle_tool_error=self._parse_tool_error
-            )
+            return_direct=True,
+            paper_store=self.paper_store,
+            llm=self.chat_llm, 
+            vectorstore=self.vectorstore,
+            handle_tool_error=self._parse_tool_error
+        )
 
         paper_summarize = SummarizePaperTool(
+            paper_store=self.paper_store,
             llm=self.chat_llm,
             vectorstore=self.vectorstore,
             handle_tool_error=self._parse_tool_error
         )
 
         return [arxiv_search, paper_qa, paper_summarize]
+    
+    def save(self):
+        """Must call before exiting to save vectorstore and paper store"""
+        self.paper_store.save()
     
 
 

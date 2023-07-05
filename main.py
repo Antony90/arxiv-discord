@@ -57,3 +57,4 @@ if __name__ == "__main__":
             run_bot(agent)
     except KeyboardInterrupt:
         print("\nKeyboard interrupt: exiting\n")
+        agent.save()
