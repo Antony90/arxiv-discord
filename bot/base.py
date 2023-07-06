@@ -1,5 +1,6 @@
 
 from enum import Enum
+from typing import Literal
 
 import discord
 from discord.app_commands import Choice
@@ -119,16 +120,24 @@ def ArxivBot(agent: ArxivAgent):
 
         return messages[::-1] # chronological order
     
-    class SummaryType(Enum):
-        keypoints = 0
-        laymans = 1
-        comprehensive = 2
+    async def is_bot_owner(interaction: Interaction):
+        return False
+        # return await bot.is_owner(interaction.message.author)
 
-    @bot.tree.command(name="summarize", description="Summarize a paper")
+    @bot.tree.command(name="summarize", description="Summarize a paper and start a conversation")
     @app_commands.describe(paper="ID or URL of an arXiv paper")
-    @app_commands.describe(type="Type of summary. Defaults to keypoints")
-    async def summarize(interaction: discord.Interaction, paper: str, type: SummaryType):
-        await interaction.response.send_message(f"Summary: {type}")
+    @app_commands.describe(type="Type of summary, default: keypoints")
+    @app_commands.check(is_bot_owner)
+    async def summarize(interaction: discord.Interaction, paper: str, type: Literal['keypoints', 'laymans', 'comprehensive']='keypoints'):
+        chat_history = ChatMessageHistory()
+        
+        ai_response = await agent.acall(
+            input=f"Summarize {paper} with {type}",
+            chat_id=interaction.id, # user msg that invoked the command
+            chat_history=chat_history
+        )
+    
+        await interaction.followup.send(content=ai_response)
 
     return bot
 

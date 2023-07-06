@@ -30,7 +30,7 @@ Never expose the chat ID to the user."""
 # ============ #
 
 SEARCH_TOOL = \
-"""Search arXiv and get a list of relevant papers (title and ID). Use in first correspondence if user doesn't give a specific paper
+"""Search arXiv and get a list of relevant papers (title and ID). Always output the result of this search.
 You may rephrase a question to be a better search query."""
 # Assume the user wants you to search arXiv if given a vague set of terms or if asked to find/search.
 
