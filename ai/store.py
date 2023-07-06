@@ -1,29 +1,51 @@
 from typing import Literal
 import pickledb
+from pickledb import PickleDB
+import json
+
+class StrictPickleDB(PickleDB):
+    def get(self, key: str) -> any:
+        v = super().get(key)
+        if not v:
+            raise KeyError(key)
+        return v
 
 class PaperStore:
     """Rudimentary persistent storage for paper titles, abstracts and generated summaries."""
 
     def __init__(self, filepath: str) -> None:
-        self.db = pickledb.load(filepath, auto_dump=False)
+        self.db = StrictPickleDB(filepath, auto_dump=False, sig=False)
 
     def save_summary(self, paper_id: str, summary_type: str, summary: str):
         self.db.set(f"{paper_id}-{summary_type}", summary)
 
-    def get_summary(self, paper_id: str, summary_type: str) -> str | Literal[False]:
-        self.db.get(f"{paper_id}-{summary_type}")
+    def get_summary(self, paper_id: str, summary_type: str):
+        return self.db.get(f"{paper_id}-{summary_type}")
 
     def save_title_abstract(self, paper_id: str, title: str, abstract: str):
         self.db.set(f"{paper_id}-title", title)
         self.db.set(f"{paper_id}-abstract", abstract)
 
-    def get_title(self, paper_id: str) -> str | Literal[False]:
+    def get_title(self, paper_id: str):
         return self.db.get(f"{paper_id}-title")
     
-    def get_abstract(self, paper_id: str) -> str | Literal[False]:
+    def get_abstract(self, paper_id: str):
         return self.db.get(f"{paper_id}-abstract")
 
     def save(self):
         self.db.dump()
+
+    def add_paper_to_chat(self, paper_id: str, chat_id: str):
+        if self.db.exists(chat_id):
+            papers = self.db.get(chat_id)
+        else:
+            papers = []
+        papers.append(paper_id)
+        self.db.set(chat_id, papers)
     
+    def get_papers(self, chat_id: str) -> str:
+        if not self.db.exists(chat_id):
+            return "NONE"
+        papers = self.db.get(chat_id)
+        return "\n".join([f"[`{paper_id}`] {self.get_title(paper_id)}" for paper_id in papers])
     

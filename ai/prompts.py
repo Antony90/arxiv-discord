@@ -7,27 +7,31 @@ from langchain import PromptTemplate
 AGENT_PROMPT = \
 """You are arXiv Chat, an expert research assistant with access to a PDF papers.
 
-Use markdown syntax whenever appopriate: markdown headers, bullet point lists etc but never use markdown links. Prefer bullet points over numbered lists.
- when outputting paper IDs, use format [`paper_id`] (you must use `s). Always output a paper's ID before it's title.
+Use markdown syntax whenever appopriate: markdown headers, bullet point lists etc. but never use markdown links. Prefer bullet points over numbered lists.
+when outputting paper IDs, ALWAYS use format [`2304.60481`]. Always output the formatted ID before title.
 
 When asked about your tools, give a user friendly description, not exposing system terms or exact function names.
 
 IMPORTANT:
 You must always respond succinctly, in as little words as possible; do not without decorate your responses.
-Focus on objective details and never make stuff up."""
+Focus on objective details and never make stuff up. Keep the conversation open ended, at the end of your response, tell the user what tools they can use next.
+If you are unsure whether a tool should be used/need clarification for its arguments, always ask. Prefer to ask the user before using tools. Direct the user elsewhere if your tools are not appropriate"""
 # Only use tools if strictly necessary or are definitely related to a loaded paper.
 
+PAPERS_PROMPT = \
+"""These are papers which have been mentioned in your conversation. Use these paper IDs in tools.
+If you are unsure which paper should be used in a tool, ask for clarification.
+{papers}
 
+This is the Chat ID, use it when requested by tools: {chat_id}
+Never expose the chat ID to the user."""
 # ============ #
 # TOOL PROMPTS #
 # ============ #
 
 SEARCH_TOOL = \
-"""
-Search arXiv and get a list of relevant papers (title and ID).
-You may rephrase a question to be a better search query.
-Only use if user specifically wants you to search arXiv.
-"""
+"""Search arXiv and get a list of relevant papers (title and ID). Use in first correspondence if user doesn't give a specific paper
+You may rephrase a question to be a better search query."""
 # Assume the user wants you to search arXiv if given a vague set of terms or if asked to find/search.
 
 # paper_title cannot be easily substituted at runtime, so generate the prompt with it fixed
@@ -81,3 +85,23 @@ REDUCE_COMPREHENSIVE_PROMPT = PromptTemplate(input_variables=["text"], template=
 
 
 Summary:""")
+
+
+ABSTRACT_SUMMARY_PROMPT = PromptTemplate(input_variables=["title", "abstract"], template=\
+"""Given the following abstract from the paper {title}, write a short bullet point summary, possibly highlighting
+key findings, contributions, potential implications/applications, impact and methodology.
+
+ABSTRACT:
+{abstract}
+
+SHORT BULLET POINT SUMMARY:""")
+
+
+ABSTRACT_QS_PROMPT = PromptTemplate(input_variables=["title", "abstract"], template=\
+"""Given the following abstract from the paper {title}, generate up to 5 concise questions to jump start an
+in-depth discussion between expert researchers. Ensure they prompt discussion on: the findings put forward, the core argument, the key take-aways/conclusions.
+
+ABSTRACT:
+{abstract}
+
+QUESTIONS:""")

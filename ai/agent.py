@@ -14,15 +14,15 @@ from langchain.schema import SystemMessage, BaseChatMessageHistory
 from langchain.tools.base import ToolException, BaseTool
 
 from ai.arxiv import LoadedPapersStore, PaperMetadata
-from ai.prompts import AGENT_PROMPT
+from ai.prompts import AGENT_PROMPT, PAPERS_PROMPT
 from ai.store import PaperStore
-from ai.tools import AddPapersTool, ArxivSearchTool, PaperQATool, SummarizePaperTool
+from ai.tools import ArxivSearchTool, GetPaperInfoTool, PaperAbstractQuestions, PaperQATool, SummarizePaperTool
 from config import CONFIG
 
 
 class ArxivAgent:
     embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-    llm = OpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
+    # llm = OpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
     chat_llm = ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
     
     def __init__(self, verbose=False):
@@ -63,16 +63,27 @@ class ArxivAgent:
             tools=self.agent.tools,
             memory=memory,
             verbose=self.verbose,
-            callbacks=[StdOutCallbackHandler("red")]
         )
 
+        # papers mentioned in conversation
+        papers = self.paper_store.get_papers(chat_id)
+
         return await exec_chain.arun(
-            input=input
+            input=input,
+            papers=papers,
+            chat_id=chat_id
         )
 
     def _init_agent(self):
+        prompt_template = PromptTemplate(
+            input_variables=["papers", "chat_id"],
+            template=PAPERS_PROMPT
+        )
+        papers_prompt = SystemMessagePromptTemplate(
+            prompt=prompt_template
+        )
         message_history = MessagesPlaceholder(variable_name="memory")
-        extra_prompt_messages = [message_history]
+        extra_prompt_messages = [papers_prompt, message_history]
         system_message = SystemMessage(
             content=AGENT_PROMPT
         )
@@ -98,7 +109,14 @@ class ArxivAgent:
         return f"An error occurred: {err.args[0]}"
     
     def _get_tools(self) -> List[BaseTool]:
+        
         arxiv_search = ArxivSearchTool()
+
+        paper_info = GetPaperInfoTool(
+            llm=self.chat_llm,
+            paper_store=self.paper_store,
+            vectorstore=self.vectorstore
+        )
 
         paper_qa = PaperQATool(
             return_direct=True,
@@ -108,14 +126,14 @@ class ArxivAgent:
             handle_tool_error=self._parse_tool_error
         )
 
-        paper_summarize = SummarizePaperTool(
-            paper_store=self.paper_store,
-            llm=self.chat_llm,
-            vectorstore=self.vectorstore,
-            handle_tool_error=self._parse_tool_error
-        )
+        # paper_summarize = SummarizePaperTool(
+        #     paper_store=self.paper_store, # get paper title
+        #     llm=self.chat_llm,
+        #     vectorstore=self.vectorstore,
+        #     handle_tool_error=self._parse_tool_error
+        # )
 
-        return [arxiv_search, paper_qa, paper_summarize]
+        return [arxiv_search, paper_info, paper_qa]
     
     def save(self):
         """Must call before exiting to save vectorstore and paper store"""
