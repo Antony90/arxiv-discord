@@ -46,8 +46,8 @@ class BasePaperTool(BaseTool):
             print(f"{paper_id} already in db")
             return True # already in db
 
-        doc = arxiv_fetch.get_doc_sync(paper_id)
-        self.paper_store.save_title(doc.metadata["title"])
+        doc, abstract = arxiv_fetch.get_doc_sync(paper_id)
+        self.paper_store.save_title_abstract(paper_id, doc.metadata["title"], abstract)
 
         # split and embed docs in vectorstore
         split_docs = self.text_splitter.split_documents([doc])
@@ -64,8 +64,8 @@ class BasePaperTool(BaseTool):
             print(f"{paper_id} already in db")
             return True # already in db
 
-        doc = await arxiv_fetch.get_doc_async(paper_id)
-        self.paper_store.save_title(doc.metadata["title"])
+        doc, abstract = await arxiv_fetch.get_doc_async(paper_id)
+        self.paper_store.save_title_abstract(paper_id, doc.metadata["title"], abstract)
         
         # split and embed docs in vectorstore
         split_docs = self.text_splitter.split_documents([doc])

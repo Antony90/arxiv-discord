@@ -52,9 +52,12 @@ class ArxivFetch:
         """Convert https://arxiv.org/abs/XXXX.YYYYYvZ to XXXX.YYYYY"""
         return url.split("/")[-1].split("v")[0]
 
-    def get_doc_sync(self, paper_id: str) -> Document:
+    def get_doc_sync(self, paper_id: str) -> tuple[Document, str]:
         """Get a PDF contents for the paper_id, exluding all text after the "References" section.
-        This saves a lot of tokens for summarization methods and reduces size in vector store."""
+        This saves a lot of tokens for summarization methods and reduces size in vector store.
+        
+        Also returns paper's abstract.
+        """
         # use arXiv API for the paper title
         search = Search(query=paper_id, max_results=1)
         
@@ -63,6 +66,7 @@ class ArxivFetch:
             found = True
 
             title = result.title
+            abstract = result.summary
             break
         
         if not found:
@@ -74,7 +78,7 @@ class ArxivFetch:
             "source": paper_id,
             "title": title
         }
-        return Document(page_content=pdf_txt, metadata=metadata)
+        return Document(page_content=pdf_txt, metadata=metadata), abstract
     
     async def get_doc_async(self, paper_id: str):
         return await asyncio.get_event_loop().run_in_executor(None, self.get_doc_sync, paper_id)
