@@ -1,18 +1,12 @@
 # arXiv Chat: AI research assistant & Discord bot
+An AI chatbot agent, designed to assist researchers and enthusiasts accessing and interacting with the [arXiv paper archive](https://arxiv.org/).
 
-## 📌 About
-- An AI chatbot agent designed to assist researchers and enthusiasts accessing and interacting with the [arXiv paper archive](https://arxiv.org/). Using OpenAI's GPT-3.5.
+The goal is to make the process of literature exploration more efficient and facilitate discussions across multiple papers, as well as with peers. Built with [Langchain](https://python.langchain.com/docs/get_started/introduction.html), [discord.py](https://discordpy.readthedocs.io/), GPT-3.5 using [OpenAI API](https://platform.openai.com/docs/introduction).
 
-- The goal is to make the process of literature exploration more efficient and promotes critical discussions between multiple papers.
-
-- As an autonomous agent, it can decompose user prompts into several tasks, removing the need to specifically request for tasks to be carried out. This makes use of OpenAI's [Function Calling API](https://platform.openai.com/docs/guides/gpt/function-calling).
-
-- Built with [Langchain](https://python.langchain.com/docs/get_started/introduction.html), [discord.py](discordpy.readthedocs.io/), [OpenAI API](https://platform.openai.com/docs/introduction).
-
-## 🧪 Demo
+## Demo
 Join the official discord [here](https://discord.gg/Y38bcWSzSD). ~~Invite the bot to your server~~. Coming soon.
 
-## 💡 Features
+## Features
 
 - **Querying Papers**
     - Ask questions about specific papers, arXiv-Chat will respond with appropriately cited responses.
@@ -22,8 +16,12 @@ Join the official discord [here](https://discord.gg/Y38bcWSzSD). ~~Invite the bo
     - Summarize papers concisely, highlighting the main argument and conclusions. There are 3 variations: {laymans, keypoints, comprehensive} which are chosen based on preference and the level of detail required.
 - **Paper Recommendation/Search**
     - arXiv-Chat may point you to specific papers based on your discussion. It can also simply search arXiv.
+---
 
-## 📜 Planned Features
+- As an autonomous agent, it can decompose user prompts into several tasks, removing the need to specifically name tasks to be carried out. See OpenAI's [Function Calling API](https://platform.openai.com/docs/guides/gpt/function-calling).
+
+
+## Planned Features
 
 - **git Repository Loader**
     - The ability to clone in-paper git repo links, allowing their code to be part of the agent's accessible knowledge base. Could assist in understanding the implementation of a paper with code.
@@ -31,21 +29,19 @@ Join the official discord [here](https://discord.gg/Y38bcWSzSD). ~~Invite the bo
 If you have any ideas for additional features or want to participate in developing these features, see [here](#contributing)
 
 
-## ⚙️ Installation
+## Installation
 Note: you must have Python 3.9 or later installed.
 
-1. First clone the repository.
-
-2. Create a `.env` file in the project directory:
+1. Create a `.env` file in the project directory:
     ```env
     OPENAI_API_KEY=
     BOT_TOKEN=
     ```
     Get an OpenAI API key [here](https://platform.openai.com/account/api-keys).
 
-3. 
+2. 
     #### Without Docker
-    Install python dependencies
+    Install python dependencies:
     ```bash
     pip install -r requirements.txt
     ```
@@ -58,12 +54,8 @@ Note: you must have Python 3.9 or later installed.
 
 
 ## Usage
-Specify `-t` option to run in REPL/termnial user input mode.
 
-
----
-
-Run the discord bot locally
+Run the discord bot locally:
 #### Without Docker
 ```bash
 python3 main.py
@@ -73,6 +65,8 @@ python3 main.py
 ```bash
 docker run -it --rm arxiv-chat
 ```
+
+Specify `-t` option to run in REPL/termnial user input mode.
 
 ## Contributing
 
