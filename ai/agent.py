@@ -5,7 +5,7 @@ from langchain.callbacks import StdOutCallbackHandler, OpenAICallbackHandler
 from langchain.prompts import MessagesPlaceholder, PromptTemplate, SystemMessagePromptTemplate
 from langchain.agents import AgentExecutor
 from langchain.agents.openai_functions_agent.base import OpenAIFunctionsAgent
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
 from langchain.llms import OpenAI
 from langchain.chat_models import ChatOpenAI
 from langchain.vectorstores import Chroma
@@ -25,7 +25,7 @@ class ArxivAgent:
     # llm = OpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
     chat_llm = ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
     
-    def __init__(self, verbose=False):
+    def __init__(self, chat_window=3, verbose=False):
         self.verbose = verbose
 
         # use discord message id as collection name
@@ -39,6 +39,9 @@ class ArxivAgent:
         print(f"Loaded collection `{self.vectorstore._collection.name}` from directory `{self.vectorstore._persist_directory}` with {num_vects} vector(s)")
 
         self.paper_store = PaperStore(CONFIG.PAPER_STORE_PATH)        
+        self.chat_window = chat_window # max no. interactions (Human + AI messages) in chat history
+
+
         self.agent = self._init_agent()
     
 
@@ -51,11 +54,12 @@ class ArxivAgent:
             chat_id (str): client provided unique identifier of conversation
             chat_history (BaseChatMessageHistory): message history
         """
-        memory = ConversationBufferMemory(
+        memory = ConversationBufferWindowMemory(
             chat_memory=chat_history,
             return_messages=True,
             input_key="input",
-            memory_key="memory"
+            memory_key="memory",
+            k=self.chat_window
         )
         
         exec_chain = AgentExecutor.from_agent_and_tools(
@@ -110,7 +114,7 @@ class ArxivAgent:
     
     def _get_tools(self) -> List[BaseTool]:
         
-        arxiv_search = ArxivSearchTool()
+        arxiv_search = ArxivSearchTool(return_direct=True)
 
         paper_info = GetPaperInfoTool(
             llm=self.chat_llm,

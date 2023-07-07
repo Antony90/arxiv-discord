@@ -9,7 +9,7 @@ import asyncio
 # wrapper which automatically parses PDF into unicode text
 from langchain.document_loaders.arxiv import ArxivAPIWrapper
 # base search which returns Result objects
-from arxiv import SortCriterion, SortOrder, Search
+from arxiv import SortCriterion, SortOrder, Search, Result
 import requests
 
 class ArxivFetch:
@@ -94,22 +94,13 @@ class ArxivFetch:
     
     
     def search_sync(self, query: str) -> List[str]:
-        results = self._search_papers(query)
-        
-        output = []
-        for r in results:
-            output.append(f"{r.title} - {self._short_id(r.entry_id)}")
-        return output
-    
+        return self._search_papers(query)
+
     async def search_async(self, query: str):
         loop = asyncio.get_event_loop()
         # use default executor (thread pool)
-        results = await loop.run_in_executor(None, self._search_papers, query)
+        return await loop.run_in_executor(None, self._search_papers, query)
         
-        output = []
-        for r in results:
-            output.append(f"{r.title} - {self._short_id(r.entry_id)}")
-        return output
     
 
 @dataclass

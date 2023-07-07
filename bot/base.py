@@ -1,13 +1,16 @@
 
+from collections import deque
 from enum import Enum
 from typing import Literal
 
 import discord
 from discord.app_commands import Choice
-from discord import DeletedReferencedMessage, Interaction, Message, MessageReference, app_commands
+from discord import DeletedReferencedMessage, ForumChannel, Interaction, Message, MessageReference, Thread, app_commands
 from discord.ext.commands.bot import Bot, Context
 
 from langchain.memory.chat_message_histories import ChatMessageHistory
+from langchain.schema.messages import HumanMessage, AIMessage
+
 from ai.agent import ArxivAgent
 
 from config import CONFIG
@@ -27,41 +30,57 @@ def ArxivBot(agent: ArxivAgent):
     async def on_ready():
         synced = await bot.tree.sync()
         print(f"{len(synced)} command(s) synced")
+        print(f"Guilds: {{{', '.join(map(lambda g: g.name, bot.guilds))}}}")
 
-    # @bot.tree.command(name="chat", description="arXiv chatbot")
-    # @app_commands.describe(message="First message of the conversation")
-
-    @bot.tree.command(name="chat", description="Start a conversation with arXiv papers")
-    async def chat(interaction: discord.Interaction):
-        await interaction.response.send_message("Hello, how can I help you?")
-        # await interaction.response.defer(thinking=True)
-        # if papers is not None:
-        #     initial_msg = f"Load these papers: {papers}"
-        # else:
-        #     initial_msg = "What can you do?"
-
-        # chat_history = ChatMessageHistory()
-        
-        # ai_response = await agent.acall(
-        #     input=initial_msg,
-        #     chat_id=interaction.id, # user msg that invoked the command
-        #     chat_history=chat_history
-        # )
-    
-        # await interaction.followup.send(content=ai_response)
+    @bot.tree.command(name="chat", description="Start a conversation with arXiv papers in a new thread")
+    @app_commands.describe(title="Thread title")
+    async def chat(interaction: Interaction, title: str="Placeholder"):
+        if str(interaction.channel.id) == CONFIG.THREAD_CHANNEL:
+            await interaction.response.send_message(content="Created thread")
+            response_msg = await interaction.original_response()
+            await response_msg.create_thread(name=title)
+        else:
+            await interaction.response.send_message("Command can only be ran in a thread enabled channel.")
             
         
     @bot.event
     async def on_message(message: Message):
-        # if message.content.startswith(bot.command_prefix):
-        #     return await bot.process_commands(message)
-        
-        # prevent bot from invoking command
-        # only care about replies
-        if message.author.id == bot.user.id or message.reference is None:
+        # only invoke agent chat if in thread and not bot
+        if message.author.id == bot.user.id or not isinstance(message.channel, Thread) or bot.user not in message.mentions:
             return
         
-        print(f"on_message: '{message.content}'")
+        num_msgs = 0
+        messages = deque()
+        async for msg in message.channel.history(limit=30, oldest_first=False):
+            # chat window counts number of AI+User message pairs
+            if int(num_msgs/2) > agent.chat_window:
+                break
+        
+            if not msg.content: # `msg` can be a reference with no content
+                continue
+            
+            if bot.user in msg.mentions and not msg.author.bot:
+                messages.appendleft(HumanMessage(content=f"{msg.author.display_name}: {msg.clean_content}"))
+            elif msg.author == bot.user:
+                messages.appendleft(AIMessage(content=msg.clean_content))
+
+            num_msgs += 1
+
+        chat_history = ChatMessageHistory(messages=list(messages))
+        for msg in chat_history.messages:
+            if msg.content: # `msg` can be a reference with no content
+                if isinstance(msg, HumanMessage):
+                    print("Human:", msg.content)
+                else:
+                    print("AI:", msg.content)
+                
+        ai_response = await agent.acall(
+            input=message.content,
+            chat_id=str(message.channel.id),
+            chat_history=chat_history
+        )
+        return await message.reply(ai_response)
+        
         async with message.channel.typing():
             message_history = await get_reply_chain(message)
             for msg in message_history:
@@ -92,6 +111,7 @@ def ArxivBot(agent: ArxivAgent):
                 else:
                     history.add_user_message(msg.content)
         return history
+
 
     async def get_reply_chain(curr_msg: Message):
         messages: list[Message] = [curr_msg]

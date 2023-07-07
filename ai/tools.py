@@ -1,5 +1,6 @@
-import asyncio
 from pydantic import BaseModel, Extra, Field
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
+import logging
 
 from langchain import LLMChain, PromptTemplate
 from langchain.tools import BaseTool
@@ -14,17 +15,14 @@ from langchain.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 
-
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
-
-
-import logging
+from arxiv import Result
 
 from ai.store import PaperStore
-logging.getLogger('langchain.retrievers.multi_query').setLevel(logging.INFO)
-
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
 from ai.prompts import ABSTRACT_QS_PROMPT, ABSTRACT_SUMMARY_PROMPT, MAP_PROMPT, MULTI_QUERY_PROMPT, REDUCE_COMPREHENSIVE_PROMPT, REDUCE_KEYPOINTS_PROMPT, REDUCE_LAYMANS_PROMPT, SEARCH_TOOL
+
+logging.getLogger('langchain.retrievers.multi_query').setLevel(logging.INFO)
+
 
 class BasePaperTool(BaseTool):
     """Base class for tools which may want to load a paper before running their function."""
@@ -86,14 +84,15 @@ class ArxivSearchTool(BaseTool):
     description = SEARCH_TOOL
     args_schema: Type[ArxivSearchSchema] = ArxivSearchSchema
 
+    def format_result(self, result: Result):
+        abstract = result.summary[:200].replace('\n', '')
+        return f"- [`{ArxivFetch._short_id(result.entry_id)}`] - `{result.title}`\n    - {abstract}..."
+
     def _run(self, query: str) -> List[str]:
-        return arxiv_fetch.search_sync(query)
+        return "\n".join([self.format_result(r) for r in arxiv_fetch.search_async(query)])
     
     async def _arun(self, query: str):
-        try:
-            return await arxiv_fetch.search_async(query)
-        except IndexError:
-            raise ToolException("No results found")
+        return "\n".join([self.format_result(r) for r in await arxiv_fetch.search_async(query)])
 
 class PaperQASchema(BaseModel):
     question: str = Field(description="A question to ask about a paper. Cannot be empty. Do not include the paper ID")
