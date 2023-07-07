@@ -1,0 +1,8 @@
+langchain
+discord.py
+arxiv
+python-dotenv
+pymupdf
+pickledb
+openai
+chromadb
