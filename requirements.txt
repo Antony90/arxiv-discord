@@ -6,3 +6,4 @@ pymupdf
 pickledb
 openai
 chromadb
+tiktoken
