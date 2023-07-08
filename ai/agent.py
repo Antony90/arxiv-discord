@@ -25,7 +25,7 @@ class ArxivAgent:
     # llm = OpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
     chat_llm = ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
     
-    def __init__(self, chat_window=3, verbose=False):
+    def __init__(self, chat_window=CONFIG.CHAT_WINDOW, verbose=False):
         self.verbose = verbose
 
         # use discord message id as collection name

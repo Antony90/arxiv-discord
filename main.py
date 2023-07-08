@@ -48,13 +48,15 @@ if __name__ == "__main__":
 
     agent = ArxivAgent(verbose=True)
 
-    try:
-        if args.test:
-            print("Starting REPL")
+    if args.test:
+        print("Starting REPL")
+        try:
             asyncio.run(run_test(agent))
-        else:
-            print("Starting bot")
-            run_bot(agent)
-    except KeyboardInterrupt:
-        print("\nKeyboard interrupt: exiting\n")
-        agent.save()
+        except KeyboardInterrupt:
+            pass
+    else:
+        print("Starting bot")
+        run_bot(agent)
+
+    print("\nSaving and exiting")
+    agent.save()

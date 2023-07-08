@@ -101,7 +101,7 @@ class PaperQASchema(BaseModel):
 
 class PaperQATool(BasePaperTool):
     name = "arXiv-Paper-Question"
-    description = "Ask a question about the contents of a paper. Source of factual information for an arXiv paper. Don't include paper ID/URL in the question"
+    description = "Ask a question about the contents of a paper. Source of factual information for an arXiv paper. Don't include paper ID/URL in the question."
     args_schema: Type[PaperQASchema] = PaperQASchema
 
     # private attrs
@@ -156,7 +156,7 @@ class GetPaperInfoTool(BaseModel):
     
 class GetPaperInfoTool(BasePaperTool):
     name = "Get-Paper-Info"
-    description = "Fetches a paper and provides a bullet point summary of the abstract and generates questions you should relay to the user (use heading Questions). Use this tool first after a user mentions a paper. Use all of this tool's output in your response"
+    description = "Fetches a paper and provides a bullet point summary of the abstract and generates questions you should relay to the user (use heading Questions). Do not modify this tool's output in your response"
     args_schema: Type[GetPaperInfoTool] = GetPaperInfoTool
     
     llm: BaseLanguageModel
