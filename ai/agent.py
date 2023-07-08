@@ -114,7 +114,7 @@ class ArxivAgent:
     
     def _get_tools(self) -> List[BaseTool]:
         
-        arxiv_search = ArxivSearchTool(return_direct=True)
+        arxiv_search = ArxivSearchTool()
 
         paper_info = GetPaperInfoTool(
             llm=self.chat_llm,
@@ -123,7 +123,6 @@ class ArxivAgent:
         )
 
         paper_qa = PaperQATool(
-            return_direct=True,
             paper_store=self.paper_store,
             llm=self.chat_llm, 
             vectorstore=self.vectorstore,
