@@ -2,7 +2,7 @@
 from collections import deque
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import discord
 from discord.app_commands import Choice, CheckFailure, AppCommandError
@@ -73,11 +73,12 @@ def ArxivBot(agent: ArxivAgent):
         chat_history = ChatMessageHistory(messages=[])
         async with thread.typing():
             ai_response = await get_completion_response(
-                thread=thread, 
+                chat_id=str(thread.id), 
                 message=message, 
                 chat_history=chat_history
             )
-        await thread.send(ai_response)
+
+        await send_response(msgs=ai_response, root=thread)
 
     async def get_msg_history(thread: Thread, curr_msg_id: int, max_search=CONFIG.MAX_THREAD_SEARCH):
         num_msgs = 0
@@ -90,7 +91,7 @@ def ArxivBot(agent: ArxivAgent):
             if not msg.content: # thread starter message has no content
                 continue
             
-            # user message reply. cannot be the new message
+            # user message reply. exclude the current message
             if bot.user in msg.mentions and not msg.author.bot and msg.id != curr_msg_id:
                 messages.append(HumanMessage(content=format_user_msg(msg.content, msg.author)))
             elif msg.author == bot.user:
@@ -103,6 +104,23 @@ def ArxivBot(agent: ArxivAgent):
 
     def format_user_msg(msg: str, user: discord.User):
         return f"{user.display_name}: {msg}"
+    
+    async def send_response(msgs: list[str], root: Union[Message, Thread]) -> Optional[Message]:
+        """Send a list of messages in order with each message replying to the previous.
+        `msgs` (list[str]): messages to send
+        `root` (Union[Message, Thread]): message or thread to send message to
+        Returns the last message sent."""
+        prev: Optional[Message] = None
+        for msg in msgs:
+            if prev:
+                prev = prev.reply(msg)
+            else:
+                # first message, either replying to the user Message or start of Thread
+                if isinstance(root, Message):
+                    prev = await root.reply(msg)
+                else: # Thread
+                    prev = await root.send(msg)
+        return prev
 
     @bot.event
     async def on_message(message: Message):
@@ -118,19 +136,20 @@ def ArxivBot(agent: ArxivAgent):
         if thread.locked:
             return
         
-        msg_history = await get_msg_history(thread)
+        msg_history = await get_msg_history(thread, curr_msg_id=message.id)
         chat_history = ChatMessageHistory(messages=msg_history)    
         
         async with thread.typing():
             ai_response = await get_completion_response(
-                thread=thread,
+                chat_id=str(thread.id),
                 message=message.content,
                 chat_history=chat_history
             )
-        return await message.reply(ai_response)
+        await send_response(msgs=ai_response, root=message)
 
-    async def get_completion_response(thread: discord.Thread, message: str, chat_history: ChatMessageHistory):
+    async def get_completion_response(chat_id: str, message: str, chat_history: ChatMessageHistory) -> list[str]:
         print()
+        print("History:")
         for msg in chat_history.messages:
             if isinstance(msg, HumanMessage):
                 print("Human:", msg.content)
@@ -139,13 +158,20 @@ def ArxivBot(agent: ArxivAgent):
         print(f"Input: {message}")
         print()
 
-        return await agent.acall(
+        response = await agent.acall(
             input=message,
-            chat_id=str(thread.id),
+            chat_id=chat_id,
             chat_history=chat_history
         )
 
-
+        # split messages into max size chunks
+        msgs = []
+        while len(response) > CONFIG.MAX_MSG:
+            msgs.append(response[:CONFIG.MAX_MSG])
+            response = response[CONFIG.MAX_MSG:]
+        msgs.append(response) # remainder/original response 
+        print("msgs", msgs)
+        return msgs
 
     @bot.tree.error
     async def on_command_error(inter: Interaction, err: AppCommandError):
