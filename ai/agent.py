@@ -16,7 +16,7 @@ from langchain.tools.base import ToolException, BaseTool
 from ai.arxiv import LoadedPapersStore, PaperMetadata
 from ai.prompts import AGENT_PROMPT, PAPERS_PROMPT
 from ai.store import PaperStore
-from ai.tools import ArxivSearchTool, AbstractSummaryTool, AbstractQuestionsTool, PaperQATool, SummarizePaperTool
+from ai.tools import ArxivSearchTool, AbstractSummaryTool, AbstractQuestionsTool, PaperQATool, SummarizePaperTool, PaperCitationsTool
 from config import CONFIG
 
 
@@ -141,6 +141,8 @@ class ArxivAgent:
             vectorstore=self.vectorstore,
             handle_tool_error=self._parse_tool_error
         )
+
+        # paper_citations = PaperCitationsTool()
 
         return [arxiv_search, abs_summary, abs_questions, paper_qa, paper_summary]
     

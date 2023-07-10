@@ -5,6 +5,8 @@ import logging
 
 from langchain import LLMChain, PromptTemplate
 from langchain.tools import BaseTool
+from serpapi import GoogleScholarSearch
+from langchain.tools.google_serper.tool import GoogleSerperRun
 from langchain.tools.base import ToolException
 from langchain.chains import RetrievalQAWithSourcesChain, RetrievalQA
 from langchain.chains.summarize import load_summarize_chain
@@ -17,6 +19,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 
 from arxiv import Result
+from ai.cite import get_cites, scholar_lookup
 
 from ai.store import PaperStore
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
@@ -261,6 +264,15 @@ class SummarizePaperTool(BasePaperTool):
 
         self.paper_store.save_summary(paper_id, type, summary)
 
+
+class PaperCitationsTool(BaseTool):
+    name = "get_citations"
+    description = "Get a list of citations of an arXiv paper."
+    
+    async def _arun(self, paper_id: str):
+        cite_id = await scholar_lookup(paper_id) # TODO: scrape or use another SerpAPI request
+        citations = await get_cites(cite_id)
+        return citations
 
 class AbstractQuestionsSchema(BaseModel):
     paper_id: str = Field(description="ID of paper.")
