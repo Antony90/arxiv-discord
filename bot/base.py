@@ -35,8 +35,8 @@ def ArxivBot(agent: ArxivAgent):
 
 
     def conversation_channel(interaction: Interaction):
-        if not str(interaction.channel.id) == CONFIG.THREAD_CHANNEL:
-            raise CheckFailure(f"Must be in the designated conversation channel <#{CONFIG.THREAD_CHANNEL}>")
+        if not interaction.channel.id in CONFIG.THREAD_CHANNELS:
+            raise CheckFailure(f"Must be in a conversation channel <#{CONFIG.THREAD_CHANNELS[0]}>")
         return True
     
     @bot.tree.command(name="chat", description="Start a conversation with papers in a new thread")

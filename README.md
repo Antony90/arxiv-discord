@@ -10,12 +10,16 @@ Join the official discord [here](https://discord.gg/Y38bcWSzSD). ~~Invite the bo
 
 - **Querying Papers**
     - Ask questions about specific papers, arXiv-Chat will respond with appropriately cited responses.
-- **Critical Discussions**
-    - You can engage in discussions involving multiple papers asking comparative questions. Key arguments will be raised to facilitate an insightful conversation
 - **Paper Summaries**
     - Summarize papers concisely, highlighting the main argument and conclusions. There are 3 variations: {laymans, keypoints, comprehensive} which are chosen based on preference and the level of detail required.
+- **Generate Questions**
+    - arXiv Chat can generate a set of research questions that provide alternative perspectives and valuable insights. Throw these questions back at the AI to further your aid your exploration and understanding of the paper's important take aways.
+- **Engaging Discussion**
+    - You can start discussions involving multiple papers. When answering comparative questions, the contents of each paper will be polled.
+- **Citations**
+    - If you want to explore further, you can ask for a paper's citations.
 - **Paper Recommendation/Search**
-    - arXiv-Chat may point you to specific papers based on your discussion. It can also simply search arXiv.
+    - arXiv-Chat may recommend specific papers based on your discussion. It can also simply search with a query.
 ---
 
 - As an autonomous agent, it can decompose user prompts into several tasks, removing the need to specifically name tasks to be carried out. See OpenAI's [Function Calling API](https://platform.openai.com/docs/guides/gpt/function-calling).
@@ -32,12 +36,7 @@ If you have any ideas for additional features or want to participate in developi
 ## Installation
 Note: you must have Python 3.9 or later installed.
 
-1. Create a `.env` file in the project directory:
-    ```env
-    OPENAI_API_KEY=
-    BOT_TOKEN=
-    ```
-    Get an OpenAI API key [here](https://platform.openai.com/account/api-keys).
+1. Fill `.env.example` and rename to `.env`. You'll need {[OpenAI](https://platform.openai.com/account/api-keys), [SerpAPI](https://serpapi.com/)} API keys.
 
 2. 
     #### Without Docker
@@ -63,7 +62,7 @@ python3 main.py
 
 #### With Docker
 ```bash
-docker run -it --rm arxiv-chat
+docker run -it --rm --env-file .env arxiv-chat
 ```
 
 Specify `-t` option to run in REPL/termnial user input mode.
