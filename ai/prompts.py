@@ -92,12 +92,12 @@ Summary:""")
 
 ABSTRACT_SUMMARY_PROMPT = PromptTemplate(input_variables=["title", "abstract"], template=\
 """Given the following abstract from the paper {title}, write a short bullet point summary, possibly highlighting
-key findings, contributions, potential implications/applications, impact and methodology.
+key findings, contributions, potential implications/applications, impact and methodology in heading sections.
 
 ABSTRACT:
 {abstract}
 
-SHORT BULLET POINT SUMMARY:""")
+SUMMARY:""")
 
 
 ABSTRACT_QS_PROMPT = PromptTemplate(input_variables=["title", "abstract"], template=\

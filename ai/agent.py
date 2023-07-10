@@ -16,7 +16,7 @@ from langchain.tools.base import ToolException, BaseTool
 from ai.arxiv import LoadedPapersStore, PaperMetadata
 from ai.prompts import AGENT_PROMPT, PAPERS_PROMPT
 from ai.store import PaperStore
-from ai.tools import ArxivSearchTool, GetPaperInfoTool, PaperAbstractQuestions, PaperQATool, SummarizePaperTool
+from ai.tools import ArxivSearchTool, AbstractSummaryTool, AbstractQuestionsTool, PaperQATool, SummarizePaperTool
 from config import CONFIG
 
 
@@ -116,27 +116,33 @@ class ArxivAgent:
         
         arxiv_search = ArxivSearchTool()
 
-        paper_info = GetPaperInfoTool(
+        abs_summary = AbstractSummaryTool(
+            llm=self.chat_llm,
+            paper_store=self.paper_store,
+            vectorstore=self.vectorstore
+        )
+
+        abs_questions = AbstractQuestionsTool(
             llm=self.chat_llm,
             paper_store=self.paper_store,
             vectorstore=self.vectorstore
         )
 
         paper_qa = PaperQATool(
-            paper_store=self.paper_store,
             llm=self.chat_llm, 
+            paper_store=self.paper_store,
             vectorstore=self.vectorstore,
             handle_tool_error=self._parse_tool_error
         )
 
-        # paper_summarize = SummarizePaperTool(
-        #     paper_store=self.paper_store, # get paper title
-        #     llm=self.chat_llm,
-        #     vectorstore=self.vectorstore,
-        #     handle_tool_error=self._parse_tool_error
-        # )
+        paper_summary = SummarizePaperTool(
+            paper_store=self.paper_store, # get paper title
+            llm=self.chat_llm,
+            vectorstore=self.vectorstore,
+            handle_tool_error=self._parse_tool_error
+        )
 
-        return [arxiv_search, paper_info, paper_qa]
+        return [arxiv_search, abs_summary, abs_questions, paper_qa, paper_summary]
     
     def save(self):
         """Must call before exiting to save vectorstore and paper store"""

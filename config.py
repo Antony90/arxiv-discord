@@ -6,5 +6,5 @@ class CONFIG:
     THREAD_CHANNEL = os.environ["THREAD_CHANNEL"]
 
     MAX_THREAD_SEARCH = 30
-    CHAT_WINDOW = 3
+    CHAT_WINDOW = 5
     MAX_MSG = 2000 # discord char limit

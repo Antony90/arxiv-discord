@@ -1,3 +1,4 @@
+import asyncio
 from pydantic import BaseModel, Extra, Field
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
 import logging
@@ -21,7 +22,6 @@ from ai.store import PaperStore
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
 from ai.prompts import ABSTRACT_QS_PROMPT, ABSTRACT_SUMMARY_PROMPT, MAP_PROMPT, MULTI_QUERY_PROMPT, REDUCE_COMPREHENSIVE_PROMPT, REDUCE_KEYPOINTS_PROMPT, REDUCE_LAYMANS_PROMPT, SEARCH_TOOL
 
-logging.getLogger('langchain.retrievers.multi_query').setLevel(logging.INFO)
 
 
 class BasePaperTool(BaseTool):
@@ -75,12 +75,13 @@ class BasePaperTool(BaseTool):
 
 arxiv_fetch = ArxivFetch()
 
+
 class ArxivSearchSchema(BaseModel):
-    query: str = Field(description="arXiv search query. Specific queries are preferred.")
+    query: str = Field(description="arXiv search query. Refuse user queries which are to vague.")
 
 
 class ArxivSearchTool(BaseTool):
-    name = "arXiv-Search"
+    name = "arxiv_search"
     description = SEARCH_TOOL
     args_schema: Type[ArxivSearchSchema] = ArxivSearchSchema
 
@@ -100,8 +101,8 @@ class PaperQASchema(BaseModel):
     chat_id: str = Field(description="Chat ID")
 
 class PaperQATool(BasePaperTool):
-    name = "arXiv-Paper-Question"
-    description = "Ask a question about the contents of a paper. Source of factual information for an arXiv paper. Don't include paper ID/URL in the question."
+    name = "paper_question_answering"
+    description = "Ask a question about the contents of a paper. Primary source of factual information for a paper. Don't include paper ID/URL in the question."
     args_schema: Type[PaperQASchema] = PaperQASchema
 
     # private attrs
@@ -128,36 +129,36 @@ class PaperQATool(BasePaperTool):
         filter = {
             "source": paper_id
         }
-        paper_title = self.paper_store.get_title(paper_id)
+        # paper_title = self.paper_store.get_title(paper_id)
         
         retriever = self.vectorstore.as_retriever(search_kwargs={"filter": filter})
-        # generate multiple queries from different perspectives to pull a richer set of Documents
-        output_parser = LineListOutputParser()
-        llm_chain = LLMChain(llm=self.llm, prompt=MULTI_QUERY_PROMPT(paper_title), output_parser=output_parser)
+        # # generate multiple queries from different perspectives to pull a richer set of Documents
+        # output_parser = LineListOutputParser()
+        # llm_chain = LLMChain(llm=self.llm, prompt=MULTI_QUERY_PROMPT(paper_title), output_parser=output_parser)
 
-        # TODO: implement async get_relevant_docs with subclass
-        mq_retriever = MultiQueryRetriever(
-            retriever=retriever,
-            llm_chain=llm_chain,
-            parser_key="lines"
-        )
+        # # TODO: implement async get_relevant_docs with subclass
+        # mq_retriever = MultiQueryRetriever(
+        #     retriever=retriever,
+        #     llm_chain=llm_chain,
+        #     parser_key="lines"
+        # )
             
         qa = RetrievalQA.from_chain_type(
             llm=self.llm,
             chain_type="stuff",
-            retriever=mq_retriever
+            retriever=retriever
         )
         return qa
     
 
-class GetPaperInfoTool(BaseModel):
+class AbstractSummarySchema(BaseModel):
     paper_id: str = Field(description="arXiv paper ID")
     chat_id: str = Field(description="Chat ID")
     
-class GetPaperInfoTool(BasePaperTool):
-    name = "Get-Paper-Info"
-    description = "Fetches a paper and provides a bullet point summary of the abstract and generates questions you should relay to the user (use heading Questions). Do not modify this tool's output in your response"
-    args_schema: Type[GetPaperInfoTool] = GetPaperInfoTool
+class AbstractSummaryTool(BasePaperTool):
+    name = "abstract_summary"
+    description = "Returns a bullet point summary of the abstract. Do not modify this tool's output in your response. Use specifically when a short summary is needed."
+    args_schema: Type[AbstractSummarySchema] = AbstractSummarySchema
     
     llm: BaseLanguageModel
 
@@ -173,15 +174,11 @@ class GetPaperInfoTool(BasePaperTool):
         title = self.paper_store.get_title(paper_id)
 
         # TODO: should be an instance variable since unchanged
-        # generate conversation starter questions
-        questions_chain = LLMChain(prompt=ABSTRACT_QS_PROMPT, llm=self.llm)
-        questions = await questions_chain.arun(title=title, abstract=abstract)
-
         # summarize the abstract highlighting key points
         abs_summary_chain = LLMChain(prompt=ABSTRACT_SUMMARY_PROMPT, llm=self.llm)
-        abs_summary = await abs_summary_chain.arun(title=title, abstract=abstract)
-
-        return f"Abstract Summary:\n{abs_summary}\n\nQuestions:\n{questions}"
+        abs_summary = abs_summary_chain.arun(title=title, abstract=abstract)
+        
+        return abs_summary
         
 
 class SummarizePaperSchema(BaseModel):
@@ -194,8 +191,8 @@ class SummarizePaperSchema(BaseModel):
 
 
 class SummarizePaperTool(BasePaperTool):
-    name = "Summarize-arXiv-Paper"
-    description = "Summarizes a paper given its ID."
+    name = "summarize_paper_full"
+    description = "Summarizes a paper in full, with significant detail."
 
     args_schema: Type[SummarizePaperSchema] = SummarizePaperSchema
 
@@ -265,15 +262,15 @@ class SummarizePaperTool(BasePaperTool):
         self.paper_store.save_summary(paper_id, type, summary)
 
 
-class PaperAbstractQuestionsSchema(BaseModel):
-    paper_id: str = Field(description="ID of paper to generate conversation-starting questions for.")
+class AbstractQuestionsSchema(BaseModel):
+    paper_id: str = Field(description="ID of paper.")
     chat_id: str = Field(description="Chat ID")
 
-class PaperAbstractQuestions(BasePaperTool):
-    name = "generate-abstract-questions"
+class AbstractQuestionsTool(BasePaperTool):
+    name = "get_abstract_questions"
     description = "Generates a set of questions to jump start discussion of a paper. Uses the paper's abstract."
 
-    args_schema: Type[PaperAbstractQuestionsSchema] = PaperAbstractQuestionsSchema
+    args_schema: Type[AbstractQuestionsSchema] = AbstractQuestionsSchema
 
     paper_store: PaperStore
     llm: BaseLanguageModel

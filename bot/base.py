@@ -113,7 +113,7 @@ def ArxivBot(agent: ArxivAgent):
         prev: Optional[Message] = None
         for msg in msgs:
             if prev:
-                prev = prev.reply(msg)
+                prev = await prev.reply(msg)
             else:
                 # first message, either replying to the user Message or start of Thread
                 if isinstance(root, Message):
