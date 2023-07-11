@@ -1,10 +1,22 @@
-# arXiv Chat: AI research assistant & Discord bot
+<p align="center"> 
+  <img src="images/icon.png" alt="logo" width="85px" height="85px">
+</p>
+<h1 align="center">arXiv Chat</h1>
+<h3 align="center"> An AI research assistant and Discord bot </h3>  
+
+<p align="center">
+  <a href="https://discord.gg/Y38bcWSzSD">
+    <img src="https://dcbadge.vercel.app/api/server/Y38bcWSzSD?style=flat-square"/>
+  </a>
+</p>
+
+
 An AI chatbot agent, designed to assist researchers and enthusiasts accessing and interacting with the [arXiv paper archive](https://arxiv.org/).
 
 The goal is to make the process of literature exploration more efficient and facilitate discussions across multiple papers, as well as with peers. Built with [Langchain](https://python.langchain.com/docs/get_started/introduction.html), [discord.py](https://discordpy.readthedocs.io/), GPT-3.5 using [OpenAI API](https://platform.openai.com/docs/introduction).
 
 ## Demo
-Join the official discord [here](https://discord.gg/Y38bcWSzSD). ~~Invite the bot to your server~~. Coming soon.
+Join the discord server [here](https://discord.gg/Y38bcWSzSD), start a chat. Bot invite link coming soon.
 
 ## Features
 
