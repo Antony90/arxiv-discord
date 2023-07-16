@@ -1,7 +1,7 @@
 from typing import List
 from pydantic import Extra
 
-from langchain.callbacks import StdOutCallbackHandler, OpenAICallbackHandler
+from langchain.callbacks import StdOutCallbackHandler, OpenAICallbackHandler, HumanApprovalCallbackHandler
 from langchain.prompts import MessagesPlaceholder, PromptTemplate, SystemMessagePromptTemplate
 from langchain.agents import AgentExecutor
 from langchain.agents.openai_functions_agent.base import OpenAIFunctionsAgent
@@ -16,10 +16,16 @@ from langchain.tools.base import ToolException, BaseTool
 from ai.arxiv import LoadedPapersStore, PaperMetadata
 from ai.prompts import AGENT_PROMPT, PAPERS_PROMPT
 from ai.store import PaperStore
-from ai.tools import ArxivSearchTool, AbstractSummaryTool, AbstractQuestionsTool, PaperQATool, SummarizePaperTool, PaperCitationsTool
+from ai.tools import ArxivSearchTool, AbstractSummaryTool, AbstractQuestionsTool, PaperBackend, PaperQATool, SummarizePaperTool, PaperCitationsTool, get_tools
 from config import CONFIG
 
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+from langchain.callbacks.base import BaseCallbackHandler
 
+
+
+        
 class ArxivAgent:
     embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
     # llm = OpenAI(temperature=0.0, model="gpt-3.5-turbo-0613", callbacks=[OpenAICallbackHandler()])
@@ -61,10 +67,15 @@ class ArxivAgent:
             memory_key="memory",
             k=self.chat_window
         )
+
+        # get tools with a backend
+        # chat_id lets us update the mentioned papers list for a chat
+        backend = PaperBackend(chat_id, self.vectorstore, self.paper_store, self.chat_llm)
+        tools = get_tools(self._parse_tool_error, backend)
         
         exec_chain = AgentExecutor.from_agent_and_tools(
             agent=self.agent,
-            tools=self.agent.tools,
+            tools=tools,
             memory=memory,
             verbose=self.verbose,
         )
@@ -74,13 +85,12 @@ class ArxivAgent:
 
         return await exec_chain.arun(
             input=input,
-            papers=papers,
-            chat_id=chat_id
+            papers=papers
         )
 
     def _init_agent(self):
         prompt_template = PromptTemplate(
-            input_variables=["papers", "chat_id"],
+            input_variables=["papers"],
             template=PAPERS_PROMPT
         )
         papers_prompt = SystemMessagePromptTemplate(
@@ -97,7 +107,7 @@ class ArxivAgent:
         )
         return OpenAIFunctionsAgent(
             llm=self.chat_llm,
-            tools=self._get_tools(),
+            tools=get_tools(),
             prompt=prompt,
             verbose=self.verbose
         )
@@ -111,40 +121,6 @@ class ArxivAgent:
 
     def _parse_tool_error(self, err: ToolException):
         return f"An error occurred: {err.args[0]}"
-    
-    def _get_tools(self) -> List[BaseTool]:
-        
-        arxiv_search = ArxivSearchTool()
-
-        abs_summary = AbstractSummaryTool(
-            llm=self.chat_llm,
-            paper_store=self.paper_store,
-            vectorstore=self.vectorstore
-        )
-
-        abs_questions = AbstractQuestionsTool(
-            llm=self.chat_llm,
-            paper_store=self.paper_store,
-            vectorstore=self.vectorstore
-        )
-
-        paper_qa = PaperQATool(
-            llm=self.chat_llm, 
-            paper_store=self.paper_store,
-            vectorstore=self.vectorstore,
-            handle_tool_error=self._parse_tool_error
-        )
-
-        paper_summary = SummarizePaperTool(
-            paper_store=self.paper_store, # get paper title
-            llm=self.chat_llm,
-            vectorstore=self.vectorstore,
-            handle_tool_error=self._parse_tool_error
-        )
-
-        # paper_citations = PaperCitationsTool()
-
-        return [arxiv_search, abs_summary, abs_questions, paper_qa, paper_summary]
     
     def save(self):
         """Must call before exiting to save vectorstore and paper store"""

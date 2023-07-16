@@ -1,20 +1,10 @@
-from typing import Literal
-import pickledb
 from pickledb import PickleDB
-import json
-
-class StrictPickleDB(PickleDB):
-    def get(self, key: str) -> any:
-        v = super().get(key)
-        if not v:
-            raise KeyError(key)
-        return v
 
 class PaperStore:
     """Rudimentary persistent storage for paper titles, abstracts and generated summaries."""
 
     def __init__(self, filepath: str) -> None:
-        self.db = StrictPickleDB(filepath, auto_dump=False, sig=False)
+        self.db = PickleDB(filepath, auto_dump=False, sig=False)
 
     def save_summary(self, paper_id: str, summary_type: str, summary: str):
         self.db.set(f"{paper_id}-{summary_type}", summary)
@@ -35,7 +25,7 @@ class PaperStore:
     def save(self):
         self.db.dump()
 
-    def add_paper_to_chat(self, paper_id: str, chat_id: str):
+    def add_mentioned_paper(self, paper_id: str, chat_id: str):
         if self.db.exists(chat_id):
             papers = self.db.get(chat_id)
         else:
