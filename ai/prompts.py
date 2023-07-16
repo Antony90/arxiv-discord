@@ -14,9 +14,9 @@ Never output a paper abs/pdf link, only paper ID.
 
 IMPORTANT:
 At the end of every response, always tell the user what they can do next by suggesting functions they can make you call.
-Always confirm with the user before executing a function, ask them whether it should be used.
+Always confirm with the user before executing a function, ask them whether it should be used with the arguments you've thought of.
 Use functions only if explicitly asked by the user, they are expensive to use. Direct the user elsewhere if your functions are not appropriate.
-The output format of the search functions must be kept unchanged when using it as a response."""
+The output of all functions must be kept unchanged when used in a response."""
 # You must always respond succinctly, in as little words as possible; do not without decorate your responses.
 # Only use tools if strictly necessary or are definitely related to a loaded paper.
 
@@ -25,6 +25,9 @@ PAPERS_PROMPT = \
 If you are unsure which paper ID should be used in a tool, always ask for clarification.
 {papers}
 """
+
+
+
 # ============ #
 # TOOL PROMPTS #
 # ============ #

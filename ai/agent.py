@@ -1,4 +1,4 @@
-from typing import List
+from typing import Awaitable, Callable, Coroutine, List, Optional
 from pydantic import Extra
 
 from langchain.callbacks import StdOutCallbackHandler, OpenAICallbackHandler, HumanApprovalCallbackHandler
@@ -16,12 +16,9 @@ from langchain.tools.base import ToolException, BaseTool
 from ai.arxiv import LoadedPapersStore, PaperMetadata
 from ai.prompts import AGENT_PROMPT, PAPERS_PROMPT
 from ai.store import PaperStore
-from ai.tools import ArxivSearchTool, AbstractSummaryTool, AbstractQuestionsTool, PaperBackend, PaperQATool, SummarizePaperTool, PaperCitationsTool, get_tools
+from ai.tools import ArxivSearchTool, AbstractSummaryTool, AbstractQuestionsTool, DiscordToolCallback, PaperBackend, PaperQATool, SummarizePaperTool, PaperCitationsTool, get_tools
 from config import CONFIG
 
-from typing import Any, Dict, List, Optional
-from uuid import UUID
-from langchain.callbacks.base import BaseCallbackHandler
 
 
 
@@ -50,8 +47,9 @@ class ArxivAgent:
 
         self.agent = self._init_agent()
     
+    
 
-    async def acall(self, input, chat_id: str, chat_history: BaseChatMessageHistory):
+    async def acall(self, input: str, chat_id: str, chat_history: BaseChatMessageHistory, handle_tool_msg: DiscordToolCallback.Callback):
         """Call the model with a new user message and its message history.
         Loaded papers will be automatically fetched.
 
@@ -77,7 +75,7 @@ class ArxivAgent:
             agent=self.agent,
             tools=tools,
             memory=memory,
-            verbose=self.verbose,
+            verbose=self.verbose
         )
 
         # papers mentioned in conversation
@@ -85,7 +83,8 @@ class ArxivAgent:
 
         return await exec_chain.arun(
             input=input,
-            papers=papers
+            papers=papers,
+            callbacks=[DiscordToolCallback(handle_tool_msg, tools)]
         )
 
     def _init_agent(self):

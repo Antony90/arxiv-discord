@@ -1,13 +1,18 @@
 import asyncio
 from dataclasses import dataclass
 from pydantic import BaseModel, Extra, Field
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Type
+from typing import Any, Awaitable, Callable, ClassVar, Coroutine, Dict, List, Optional, Type
 import logging
 
 
+
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+from langchain.callbacks.base import BaseCallbackHandler
+
 from langchain import LLMChain, PromptTemplate
 from langchain.callbacks import HumanApprovalCallbackHandler
-from langchain.tools import BaseTool
+from langchain.tools import BaseTool as LangChainBaseTool
 from langchain.tools.base import ToolException
 from langchain.chains import RetrievalQAWithSourcesChain, RetrievalQA
 from langchain.chains.summarize import load_summarize_chain
@@ -18,8 +23,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 
 from arxiv import Result
-from ai.cite import get_cites, scholar_lookup
 
+from ai.cite import get_cites, scholar_lookup
 from ai.store import PaperStore
 from ai.arxiv import ArxivFetch, LoadedPapersStore, PaperMetadata
 from ai.prompts import ABSTRACT_QS_PROMPT, ABSTRACT_SUMMARY_PROMPT, MAP_PROMPT, MULTI_QUERY_PROMPT, REDUCE_COMPREHENSIVE_PROMPT, REDUCE_KEYPOINTS_PROMPT, REDUCE_LAYMANS_PROMPT, SEARCH_TOOL
@@ -35,6 +40,10 @@ class PaperBackend:
     paper_store: PaperStore # paper metadata: title, abstract, generated summaries
     llm: BaseLanguageModel  # for various Chains
 
+
+class BaseTool(LangChainBaseTool):
+    """Lets tools define a user friendly action text to be displayed in progress updates"""
+    action_label: str
 
 class BasePaperTool(BaseTool):
     """Base class for tools which may want to load a paper before running their function."""
@@ -106,8 +115,12 @@ class BasePaperTool(BaseTool):
         self._backend.paper_store.add_mentioned_paper(paper_id, self._backend.chat_id)
         return found
 
-arxiv_fetch = ArxivFetch()
+arxiv_fetch = ArxivFetch() # arxiv API wrapper
 
+TOOL_ACTIONS = {}
+def register_tool_action(cls: BaseTool):
+    """A class decorator to track all tools, create a mapping which stores tool action labels"""
+    TOOL_ACTIONS[cls.name] = cls.action_label
 
 class ArxivSearchSchema(BaseModel):
     query: str = Field(description="arXiv search query. Refuse user queries which are to vague.")
@@ -117,6 +130,8 @@ class ArxivSearchTool(BaseTool):
     name = "arxiv_search"
     description = SEARCH_TOOL
     args_schema: Type[ArxivSearchSchema] = ArxivSearchSchema
+
+    action_label = "Searching arxiv"
 
     def format_result(self, result: Result):
         abstract = result.summary[:200].replace('\n', '')
@@ -132,15 +147,15 @@ class PaperQASchema(BaseModel):
     question: str = Field(description="A question to ask about a paper. Cannot be empty. Do not include the paper ID")
     paper_id: str = Field(description="ID of paper to query")
 
+
 class PaperQATool(BasePaperTool):
     name = "paper_question_answering"
     description = "Ask a question about the contents of a paper. Primary source of factual information for a paper. Don't include paper ID/URL in the question."
     args_schema: Type[PaperQASchema] = PaperQASchema
 
+    action_label = "Querying a paper"
     # Uses LLM for QA retrieval chain prompting
     # Vectorstore for embeddings of currently loaded PDFs
-
-
     
     def _run(self, question, paper_id) -> str:
         self.load_paper(paper_id)
@@ -179,6 +194,8 @@ class AbstractSummaryTool(BasePaperTool):
     description = "Returns a bullet point summary of the abstract. Do not modify this tool's output in your response. Use specifically when a short summary is needed."
     args_schema: Type[AbstractSummarySchema] = AbstractSummarySchema
     
+    action_label = "Summarizing abstract"
+
     def _run(self, paper_id):
         # TODO: use threading map
         raise NotImplementedError("Use async version `_arun`")
@@ -187,13 +204,13 @@ class AbstractSummaryTool(BasePaperTool):
     async def _arun(self, paper_id):
         await self.aload_paper(paper_id)
 
-        abstract = self.paper_store.get_abstract(paper_id)
-        title = self.paper_store.get_title(paper_id)
+        abstract = self.paper_store().get_abstract(paper_id)
+        title = self.paper_store().get_title(paper_id)
 
         # TODO: should be an instance variable since unchanged
         # summarize the abstract highlighting key points
         abs_summary_chain = LLMChain(prompt=ABSTRACT_SUMMARY_PROMPT, llm=self.llm())
-        abs_summary = abs_summary_chain.arun(title=title, abstract=abstract)
+        abs_summary = await abs_summary_chain.arun(title=title, abstract=abstract)
         
         return abs_summary
         
@@ -212,6 +229,8 @@ class SummarizePaperTool(BasePaperTool):
 
     args_schema: Type[SummarizePaperSchema] = SummarizePaperSchema
 
+    action_label = "Summarizing entire paper"
+    
     _summary_prompt = {
         "keypoints": REDUCE_KEYPOINTS_PROMPT, 
         "laymans": REDUCE_LAYMANS_PROMPT,
@@ -281,6 +300,8 @@ class PaperCitationsTool(BaseTool):
     name = "get_citations"
     description = "Get a list of citations of an arXiv paper."
     
+    action_label = "Searching for citations"
+
     async def _arun(self, paper_id: str):
         cite_id = await scholar_lookup(paper_id) # TODO: scrape or use another SerpAPI request
         citations = await get_cites(cite_id)
@@ -292,8 +313,9 @@ class AbstractQuestionsSchema(BaseModel):
 class AbstractQuestionsTool(BasePaperTool):
     name = "get_abstract_questions"
     description = "Generates a set of questions to jump start discussion of a paper. Uses the paper's abstract."
-
     args_schema: Type[AbstractQuestionsSchema] = AbstractQuestionsSchema
+
+    action_label = "Generating abstract questions"
 
     def _run(self, paper_id):
         self.load_paper(paper_id)
@@ -315,12 +337,33 @@ class AbstractQuestionsTool(BasePaperTool):
         
         return await llm_chain.arun(title=title, abstract=abstract)
 
+
+class HumanFeedbackSchema(BaseModel):
+    question: str = Field(description="A question about function arguments, whether the function call is appropriate.")
+class HumanFeedbackTool(BaseTool):
+    name = "human_feedback"
+    description = "Ask the user for help when you are unsure about function arguments, have made assumptions about function inputs or want to make sure the function call is what's wanted. Use this before any other tool when unsure."
+    args_schema: Type[HumanFeedbackSchema] = HumanFeedbackSchema
+
+    action_label = "Asking for user input"
+
+    def _run(self, question: str):
+        return input(question + "\n>>> ")
+    async def _arun(self, question: str):
+        return input(question + "\n>>> ")
+
+
+
 class FiveKeywordsTool(BaseTool):
     pass
+
 
 class ConversationQuestionsTool(BaseTool):
     """Let LLM pass a conversation history to this tool and generate future "conversation fueling" questions."""
     pass
+
+
+
 
 
 def get_tools(parse_tool_error: Optional[Callable[[ToolException], str]] = None, backend: Optional[PaperBackend] = None) -> list[BaseTool]:
@@ -328,14 +371,15 @@ def get_tools(parse_tool_error: Optional[Callable[[ToolException], str]] = None,
     Otherwise, serves as a template when initializing Agent classes."""
     arxiv_search = ArxivSearchTool()
     # paper_citations = PaperCitationsTool()
-
+    human_feedback = HumanFeedbackTool()
+    
     # tools with paper backend
     abs_summary = AbstractSummaryTool()
     abs_questions = AbstractQuestionsTool()
     paper_qa = PaperQATool(handle_tool_error=parse_tool_error)
     paper_summary = SummarizePaperTool(handle_tool_error=parse_tool_error)
 
-    tools = [arxiv_search, abs_summary, abs_questions, paper_qa, paper_summary]
+    tools = [arxiv_search, abs_summary, abs_questions, paper_qa, paper_summary, human_feedback]
     
     # register backend for tools that need it
     if backend is not None:
@@ -343,4 +387,39 @@ def get_tools(parse_tool_error: Optional[Callable[[ToolException], str]] = None,
             if isinstance(tool, BasePaperTool):
                 tool.set_backend(backend)
 
-    return tools    
+    return tools
+
+
+class DiscordToolCallback(BaseCallbackHandler):
+    # args: message, is_done 
+    Callback = Callable[[str, bool], Awaitable[None]]
+    
+    def __init__(self, handle_tool_msg: Callback, tools: list[BaseTool]):
+        super().__init__()
+        self.handle_tool_msg = handle_tool_msg
+        self.tools = tools
+
+    async def on_tool_start(
+        self, 
+        serialized: Dict[str, Any], 
+        input_str: str,
+        **kwargs
+    ):
+        print("=====")
+        print(serialized)
+        print(input_str)
+        print("=====")
+        print(input_str)
+        print(kwargs)
+        print("=====")
+
+        tool_name = serialized["name"]
+        to_action = {tool.name: tool.action_label for tool in self.tools}
+        await self.handle_tool_msg(to_action[tool_name], False)
+
+    async def on_tool_end(
+        self, 
+        output: str,
+        **kwargs
+    ):
+        await self.handle_tool_msg("", True)
